@@ -33,7 +33,7 @@
     const b = new Uint8Array(buf), v = new DataView(b.buffer, b.byteOffset, b.byteLength), out = {};
     let fin = -1;
     for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) if (v.getUint32(i, true) === 0x06054b50) { fin = i; break; }
-    if (fin < 0) throw new Error('El archivo no es un Excel válido');
+    if (fin < 0) throw Object.assign(new Error('El archivo no es un Excel válido'), { code: 'FORMATO' });
     const n = v.getUint16(fin + 10, true); let p = v.getUint32(fin + 16, true);
     const dec = new TextDecoder();
     for (let k = 0; k < n; k++) {
@@ -43,7 +43,7 @@
       out[nombre] = metodo === 0 ? datos : metodo === 8 ? datos : null; out[nombre + ':m'] = metodo;
       p += 46 + ln + le + lc;
     }
-    return { async texto(nombre) { const d = out[nombre]; if (!d) return null; return dec.decode(out[nombre + ':m'] === 8 ? await inflar(d) : d); }, nombres: Object.keys(out).filter((x) => !x.endsWith(':m')) };
+    return { async bytes(nombre) { const d = out[nombre]; if (!d) return null; return out[nombre + ':m'] === 8 ? inflar(d) : d.slice(); }, async texto(nombre) { const d = out[nombre]; if (!d) return null; return dec.decode(out[nombre + ':m'] === 8 ? await inflar(d) : d); }, nombres: Object.keys(out).filter((x) => !x.endsWith(':m')) };
   }
   const ent = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n)).replace(/&amp;/g, '&');
   const colN = (r) => { let n = 0; for (const ch of r.replace(/\d+/g, '')) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
@@ -134,5 +134,5 @@
     return movs;
   }
 
-  return { leerCSV, leerXLSX, leerArchivo, extracto, importe, fecha };
+  return { leerCSV, leerXLSX, leerArchivo, extracto, importe, fecha, unzip };
 });

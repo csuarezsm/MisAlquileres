@@ -154,7 +154,20 @@ try {
     await p.locator('[data-filtro=inquilinoId]').selectOption({ index: 1 }); await p.waitForTimeout(200);
     b = await baja('[data-a=extractoInq]'); assert.ok(b.toString('latin1').startsWith('%PDF'));
     await p.goto(URL0 + '#ajustes'); let d;
-    [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=copia]').click()]); copia = await d.path(); assert.equal(JSON.parse(fs.readFileSync(copia, 'utf8')).formato, 'mis-alquileres');
+    [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=copia]').click()]); copia = await d.path(); { const z = fs.readFileSync(copia); assert.equal(z.slice(0, 2).toString(), 'PK', 'con fotos la copia es un ZIP'); const tx = z.toString('latin1'); assert.match(tx, /datos\.json/); assert.match(tx, /adjuntos\/adj-/); assert.match(tx, /"formato":"mis-alquileres"/); }
+  });
+  await paso('copias programadas: configurar, copia completa en el móvil y copia al tocar', async () => {
+    await p.evaluate(() => { const A = window.Plataforma.Archivos; window.__copias = []; A.enMovil = true;
+      A.copiaEnMovil = async (n, b, g) => { window.__copias = [{ nombre: n, tam: b.length, b }, ...window.__copias.filter((x) => x.nombre !== n)].slice(0, g); };
+      A.copiasEnMovil = async () => window.__copias.map(({ nombre, tam }) => ({ nombre, tam })); window.__ma.pinta(); });
+    await p.goto(URL0 + '#ajustes'); assert.match(await p.locator('[data-a=copiasConf]').innerText(), /Cada día, con documentos y fotos/);
+    await p.locator('[data-a=copiasConf]').click(); await campo(p, 'frecuencia').selectOption('semanal'); await campo(p, 'guardar').selectOption('3'); await guardar(p);
+    await p.waitForFunction(() => window.__copias.length === 1); let c = await p.evaluate(() => ({ n: window.__copias[0].nombre, a: window.__ma.S.ajustes.copias }));
+    assert.match(c.n, /^mis-alquileres-\d{4}-\d{2}-\d{2}-completa\.zip$/); assert.equal(c.a.frecuencia, 'semanal'); assert.equal(c.a.guardar, 3); assert.ok(c.a.ultima);
+    await p.evaluate(() => { window.__copias = []; window.__ma.S.ajustes.copias.ultima = window.MA.masDias(window.__ma.S.ajustes.copias.ultima, -8); document.dispatchEvent(new Event('visibilitychange')); });
+    await p.waitForFunction(() => window.__copias.length === 1); await p.locator('#toast').waitFor({ state: 'detached' }).catch(() => {});
+    await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=recuperarCopia]').first().waitFor(); await foto(p, '10-copias'); await p.keyboard.press('Escape');
+    await p.evaluate(() => { window.Plataforma.Archivos.enMovil = false; });
   });
   await paso('apariencia: color y tamaño de letra se aplican y se guardan', async () => {
     await p.goto(URL0 + '#apariencia'); await p.locator('[data-a=ap][data-k=acento][data-v="#2c62c6"]').click(); await p.locator('[data-a=ap][data-k=fs][data-v="1.15"]').click();
@@ -170,7 +183,8 @@ try {
   });
   await paso('recuperar la copia en una instalación nueva (sin versión completa)', async () => {
     const q = await pagina(); await q.goto(URL0 + '#ajustes'); await q.locator('[data-a=restaurar]').click(); await q.locator('#fcopia').setInputFiles(copia);
-    await q.locator('#toast').getByText('Copia recuperada').waitFor(); const s = await S(q); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, false);
+    await q.locator('#toast').getByText(/Copia recuperada, con 1 documentos/).waitFor(); const s = await S(q); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, false);
+    assert.ok(await q.evaluate(async () => { const a = window.__ma.S.adjuntos[0]; const b = await window.Plataforma.Adjuntos.leer(a.archivo); return !!b && b.length > 0; }), 'la foto vuelve con la copia');
     await q.goto(URL0 + '#inmuebles'); await q.locator('.fab').click(); await q.locator('#hoja').getByText('Google Play').waitFor(); if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
   await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {

@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.2.1';
+  const APP_VERSION = '1.3.0';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -48,9 +48,51 @@
     tGuardar = setTimeout(async () => {
       const txt = MA.exportar(S);
       await Almacen.guardar(txt);
-      Archivos.copiaAuto(txt, HOY);
-      if (Avisos.disponible) Avisos.programar(S.ajustes.avisos ? MA.proximosAvisos(S, HOY, 60) : [], S.ajustes.horaAvisos || 9);
+      copiaProgramada();
+      if (Avisos.disponible) Avisos.programar(S.ajustes.avisos ? [...MA.proximosAvisos(S, HOY, 60), ...avisoCopia()] : [], S.ajustes.horaAvisos || 9);
     }, 300);
+  }
+  // ---------- Copias de seguridad programadas ----------
+  const FREC = { diaria: 1, semanal: 7, mensual: 30 };
+  const confCopias = () => ({ frecuencia: 'diaria', adjuntos: true, guardar: 7, ...(S.ajustes.copias || {}) });
+  const utf8 = (s) => new TextEncoder().encode(s);
+  // Copia completa: datos.json y, si se pide, los documentos y fotos en adjuntos/ (ZIP). Sin adjuntos basta el .json.
+  async function crearCopia(conAdjuntos) {
+    const txt = MA.exportar(S);
+    if (!conAdjuntos || !S.adjuntos.length) return { nombre: `mis-alquileres-${HOY}.json`, bytes: utf8(txt), mime: 'application/json' };
+    const arch = [{ nombre: 'datos.json', datos: txt }], faltan = [];
+    for (const a of S.adjuntos) { try { const b = await Adjuntos.leer(a.archivo); if (b) arch.push({ nombre: 'adjuntos/' + a.archivo, datos: b }); else faltan.push(a.nombre); } catch (e) { faltan.push(a.nombre); } }
+    arch.push({ nombre: 'LEEME.txt', datos: `Copia de Mis alquileres del ${fecha(HOY)}.\nPara recuperarla: Más › Ajustes y copias › Recuperar una copia, y elige este archivo ZIP.\n${faltan.length ? '\nNo se pudieron incluir: ' + faltan.join(', ') + '\n' : ''}` });
+    return { nombre: `mis-alquileres-${HOY}-completa.zip`, bytes: Exportar.zip(arch), mime: 'application/zip' };
+  }
+  let copiando = false;
+  async function copiaProgramada(forzar) {
+    const c = confCopias(); if (!Archivos.enMovil || copiando || (!forzar && (!FREC[c.frecuencia] || !S.contratos.length))) return false;
+    if (!forzar && c.ultima && MA.diasEntre(c.ultima, HOY) < FREC[c.frecuencia]) return false;
+    copiando = true;
+    try { const k = await crearCopia(c.adjuntos); await Archivos.copiaEnMovil(k.nombre, k.bytes, c.guardar); S.ajustes.copias = { ...c, ultima: HOY, error: null }; return true; }
+    catch (e) { S.ajustes.copias = { ...c, error: HOY }; return false; }
+    finally { copiando = false; guardar(); }
+  }
+  // Si pasa la fecha de la copia sin abrir la app, un aviso recuerda abrirla (la copia se hace al abrir)
+  function avisoCopia() {
+    const c = confCopias(); if (!Archivos.enMovil || !FREC[c.frecuencia] || !S.contratos.length) return [];
+    let f = c.ultima ? MA.masDias(c.ultima, FREC[c.frecuencia] + 1) : MA.masDias(HOY, 1); if (f <= HOY) f = MA.masDias(HOY, 1);
+    return [{ id: 990001, fecha: f, titulo: Idioma.t('Copia de seguridad pendiente'), texto: Idioma.t('Abre Mis alquileres y se hará la copia programada.') }];
+  }
+  async function recuperarBytes(bytes, nombre) {
+    let txt, z = null;
+    if (/\.zip$/i.test(nombre) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) { z = await Tablas.unzip(bytes); txt = await z.texto('datos.json'); if (!txt) throw Object.assign(new Error('El ZIP no es una copia de Mis alquileres'), { code: 'COPIA' }); }
+    else txt = new TextDecoder().decode(bytes);
+    const n = MA.importar(txt); n.pro = S.pro; let rec = 0;
+    if (z) for (const a of n.adjuntos) { const b = await z.bytes('adjuntos/' + a.archivo); if (b) { await Adjuntos.escribir(a.archivo, b, a.mime); rec++; } }
+    S = n; alDia(); guardar(); cerrar(); location.hash = '#inicio'; pinta();
+    toast(z ? `Copia recuperada, con ${rec} documentos y fotos` : 'Copia recuperada');
+  }
+  function resumenCopias() {
+    const c = confCopias(); if (!Archivos.enMovil) return 'Disponibles en la app de Android';
+    if (!FREC[c.frecuencia]) return 'Desactivadas';
+    return `${{ diaria: 'Cada día', semanal: 'Cada semana', mensual: 'Cada mes' }[c.frecuencia]}${c.adjuntos ? ', con documentos y fotos' : ', solo los datos'}${c.ultima ? '. Última: ' + fecha(c.ultima) : ''}`;
   }
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
 
@@ -349,8 +391,8 @@
       return `${sec('Tus datos y avisos', '', `<div class="lista">${item('misDatos', 'usuario', 'Mis datos', S.ajustes.propietario || 'Tu nombre y DNI para mensajes y recibos')}${item('plantillas', 'mensaje', 'Mensajes', 'Textos de los avisos por WhatsApp')}
           ${item('avisosConf', 'campana', 'Avisos en el móvil', !Avisos.disponible ? 'Disponibles en la app de Android' : S.ajustes.avisos ? `Activados, a las ${S.ajustes.horaAvisos || 9}:00` : 'Desactivados')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}</div>`)}
         ${sec('Copia de seguridad', '', `<p class="nota">Tus datos están solo en este móvil. Si lo pierdes o lo cambias, la copia es la forma de recuperarlos.</p>
-          <div class="lista">${item('copia', 'nube', 'Guardar una copia', S.ajustes.ultimaCopia ? 'Última: ' + fecha(S.ajustes.ultimaCopia) : 'Aún no has guardado ninguna')}${item('restaurar', 'bajar', 'Recuperar una copia', 'Sustituye los datos actuales')}</div>
-          <p class="sub">Al guardar, elige Drive en el menú de compartir. La copia no incluye fotos ni documentos: para esos, usa Informes y listados › Documentos y fotos.</p>`)}
+          <div class="lista">${item('copiasConf', 'reloj', 'Copias automáticas', resumenCopias())}${item('copia', 'nube', 'Guardar una copia ahora', S.ajustes.ultimaCopia ? 'Para Drive o el correo. Última: ' + fecha(S.ajustes.ultimaCopia) : 'Para Drive o el correo')}${item('restaurar', 'bajar', 'Recuperar una copia', 'Sustituye los datos actuales')}</div>
+          ${confCopias().error && confCopias().error >= (confCopias().ultima || '') ? '<p class="nota esp">La última copia automática no se ha podido guardar. Revisa el espacio libre o guarda una copia a mano.</p>' : ''}`)}
         ${sec('Importar y exportar', '', `<div class="lista">${item('#informes', 'informe', 'Informes y listados', 'Excel o PDF de todo lo que tienes')}${item('importarCartera', 'subir', 'Importar desde Excel', 'Inmuebles, inquilinos y contratos')}${item('plantillaCartera', 'bajar', 'Descargar la plantilla', 'Para preparar la importación')}</div>`)}
         ${sec('Otros', '', `<div class="lista">${item('historial', 'reloj', 'Historial de cambios', 'Cobros, anulaciones y cambios anotados')}${item('privacidad', 'escudo', 'Privacidad', 'Qué datos guarda la app y dónde')}${item('borrarTodo', 'borrar', 'Borrar todos los datos', 'Deja la app como recién instalada')}</div>`)}`;
     },
@@ -684,10 +726,26 @@
       formulario({ titulo: 'Avisos en el móvil', valores: { avisos: !!S.ajustes.avisos, horaAvisos: S.ajustes.horaAvisos || 9 }, defs: [{ k: 'avisos', t: 'check', e: 'Avisarme de cobros, vencimientos y gastos', ayuda: 'El día que vence cada recibo, cuando hay atrasos y cuando un contrato está a punto de terminar.' },
         { k: 'horaAvisos', e: 'Hora del aviso', t: 'select', op: [7, 8, 9, 10, 12, 14, 17, 19, 20].map((x) => [x, x + ':00']) }],
         alGuardar: (d) => { S.ajustes.avisos = d.avisos; S.ajustes.horaAvisos = Number(d.horaAvisos); if (d.avisos) Avisos.permiso(true).then((ok) => { if (!ok) { S.ajustes.avisos = false; guardar(); pinta(); toast('Android no ha dado permiso para mostrar avisos'); } else guardar(); }); } }); },
-    copia() { Archivos.compartir(`mis-alquileres-copia-${HOY}.json`, MA.exportar(S), 'application/json').then(() => { S.ajustes.ultimaCopia = HOY; guardar(); pinta(); toast('Copia preparada'); }).catch(() => toast('No se ha guardado la copia')); },
-    restaurar() { hoja('Recuperar una copia', '<p class="nota">Los datos actuales se sustituirán por los de la copia. Si quieres conservarlos, guarda antes una copia.</p><label class="f">Archivo de copia (.json)<input type="file" id="fcopia" accept=".json,application/json"></label>', (el) => {
+    async copia() { try { const c = confCopias(); if (c.adjuntos && S.adjuntos.length) toast('Preparando la copia…'); const k = await crearCopia(c.adjuntos);
+      await Archivos.compartirBytes(k.nombre, k.bytes, k.mime); S.ajustes.ultimaCopia = HOY; guardar(); pinta(); toast('Copia preparada'); } catch (e) { toast('No se ha guardado la copia'); } },
+    async copiasConf() { if (!Archivos.enMovil) return toast('Las copias automáticas están disponibles en la app de Android');
+      const c = confCopias(), l = await Archivos.copiasEnMovil(), kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+      formulario({ titulo: 'Copias automáticas', valores: { frecuencia: FREC[c.frecuencia] ? c.frecuencia : 'nunca', adjuntos: c.adjuntos, guardar: c.guardar },
+        defs: [{ html: '<p class="sub">Se hacen solas al abrir la app cuando toca y se guardan en este móvil, en Documentos › MisAlquileres. Con los avisos activados, te recuerda abrirla si pasa la fecha.</p>' },
+          { k: 'frecuencia', e: 'Cada cuánto', t: 'select', op: [['diaria', 'Cada día'], ['semanal', 'Cada semana'], ['mensual', 'Cada mes'], ['nunca', 'Nunca']] },
+          { k: 'adjuntos', t: 'check', e: 'Incluir los documentos y fotos', ayuda: 'La copia será un ZIP con todo. Ocupa más, pero lo recupera todo de una vez.' },
+          { k: 'guardar', e: 'Copias que se conservan', t: 'select', op: [3, 5, 7, 10, 15, 30].map((x) => [x, String(x)]) }],
+        pie: `<div class="acc"><button class="btn" data-a="copiaYa">Hacer una copia ahora</button></div>
+          <h3>Copias en este móvil</h3>${l.length ? `<div class="filas">${l.map((x) => `<div class="fila-l"><span><b>${fecha((x.nombre.match(/\d{4}-\d{2}-\d{2}/) || [''])[0])}</b><br><span class="sub">${/\.zip$/.test(x.nombre) ? 'Con documentos y fotos' : 'Solo los datos'}${x.tam ? ' · ' + kb(x.tam) : ''}</span></span><span class="der"><button class="btn peq" data-a="enviarCopia" data-n="${h(x.nombre)}">Enviar</button><button class="btn peq" data-a="recuperarCopia" data-n="${h(x.nombre)}">Recuperar</button></span></div>`).join('')}</div>` : '<p class="sub">Todavía no hay ninguna.</p>'}
+          <p class="nota esp">Si pierdes o cambias de móvil, estas copias se van con él. De vez en cuando, pulsa «Enviar» y guárdala en Drive o en tu correo.</p>`,
+        alGuardar: (d) => { S.ajustes.copias = { ...c, frecuencia: d.frecuencia, adjuntos: !!d.adjuntos, guardar: Number(d.guardar) || 7 }; },
+        despues: () => { copiaProgramada(); toast('Copias automáticas guardadas'); } }); },
+    async copiaYa() { toast('Haciendo la copia…'); if (await copiaProgramada(true)) { toast('Copia guardada en el móvil'); A.copiasConf(); } else toast('No se ha podido guardar la copia'); },
+    enviarCopia(_, el) { Archivos.compartirDeMovil(el.dataset.n).catch(() => toast('No se ha podido enviar')); },
+    recuperarCopia(_, el) { const n = el.dataset.n; confirma('Recuperar esta copia', 'Los datos actuales se sustituirán por los de la copia del ' + fecha((n.match(/\d{4}-\d{2}-\d{2}/) || [''])[0]) + '.', 'Recuperar', async () => { try { await recuperarBytes(await Archivos.leerDeMovil(n), n); } catch (x) { fallo(x); } }); },
+    restaurar() { hoja('Recuperar una copia', '<p class="nota">Los datos actuales se sustituirán por los de la copia. Si quieres conservarlos, guarda antes una copia.</p><label class="f">Archivo de copia (.json o .zip)<input type="file" id="fcopia" accept=".json,.zip,application/json,application/zip"></label>', (el) => {
       $('#fcopia', el).onchange = async (e) => { const f = e.target.files[0]; if (!f) return;
-        try { const n = MA.importar(await f.text()); n.pro = S.pro; S = n; alDia(); guardar(); cerrar(); location.hash = '#inicio'; pinta(); toast('Copia recuperada'); } catch (x) { fallo(x); } }; }); },
+        try { await recuperarBytes(new Uint8Array(await f.arrayBuffer()), f.name); } catch (x) { fallo(x); } }; }); },
     csv(_, el) { const t = el.dataset.t; Archivos.compartir(`${t.toLowerCase()}-${HOY}.csv`, MA['csv' + t](S, HOY), 'text/csv').catch(() => toast('No se ha podido exportar')); },
     historial() { const n = { pago: 'Cobro', pago_anulado: 'Cobro anulado', recibo_anulado: 'Recibo anulado', recibo_restaurado: 'Recibo recuperado', recibo_ajustado: 'Importe de recibo cambiado', contrato_creado: 'Contrato creado', contrato_editado: 'Contrato editado',
       contrato_finalizado: 'Contrato finalizado', contrato_rescindido: 'Contrato rescindido', contrato_renovado: 'Contrato renovado', renta_revisada: 'Renta cambiada', gasto_creado: 'Gasto añadido', gasto_confirmado: 'Gasto pagado', gasto_desconfirmado: 'Gasto vuelto a pendiente',
@@ -792,7 +850,7 @@
     <h3>Extracto del banco</h3><p>En Cobros o en Más, elige el extracto (Excel o CSV) y la app propone qué ingresos son de cada recibo y qué cargos son tus gastos domiciliados. Revisas y confirmas; nada se apunta solo.</p>
     <h3>Renta</h3><p>Más › Informe para la Renta resume por inmueble los ingresos, los gastos deducibles, la amortización y la reducción. Para la amortización y la imputación de días vacíos necesita el valor catastral (está en el recibo del IBI). Es orientativo: revísalo antes de presentar.</p>
     <h3>Subida anual y fianza</h3><p>La app te avisa cuando toca actualizar la renta (IRAV o IPC, según el contrato), cuando hay que depositar la fianza y cuando hay que devolverla tras la entrega de llaves.</p>
-    <h3>Tus datos</h3><p>Están solo en este dispositivo. Guarda una copia de seguridad de vez en cuando desde Más › Ajustes y copias.</p>
+    <h3>Tus datos</h3><p>Están solo en este dispositivo. La app hace copias automáticas en el móvil (Más › Ajustes y copias › Copias automáticas), con los documentos y fotos si lo eliges. De vez en cuando, envía una a Drive o a tu correo por si pierdes el móvil.</p>
     <h3>Cuentas orientativas</h3><p>Las cifras del panel son un resumen de lo que has apuntado. No sustituyen a tu contabilidad ni a un asesor fiscal.</p>`;
   const PRIVACIDAD = `<p>Mis alquileres guarda todos los datos <b>solo en este dispositivo</b>. No hay cuentas, no se envía nada a servidores de IT Canarias ni de terceros, y no hay publicidad ni seguimiento.</p>
     <p>Los datos de tus inquilinos (nombre, teléfono, DNI) los introduces tú y eres responsable de ellos. Salen del dispositivo únicamente cuando tú compartes una copia, una exportación o un mensaje.</p>
@@ -810,7 +868,7 @@
     try { fn(el.dataset.id ? Number(el.dataset.id) : undefined, el); } catch (x) { fallo(x); }
   });
   window.addEventListener('hashchange', () => { cerrar(); $('#vista').scrollTop = 0; pinta(); });
-  window.Plataforma.alVolver(() => { const antes = HOY; alDia(); if (HOY !== antes) pinta(); });
+  window.Plataforma.alVolver(() => { const antes = HOY; alDia(); if (HOY !== antes) pinta(); copiaProgramada(); });
 
   // ---------- Arranque ----------
   (async function arrancar() {

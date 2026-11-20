@@ -56,14 +56,24 @@
       await navigator.clipboard.writeText(texto);
       return 'copiado';
     },
-    // Una copia al día en Documentos/MisAlquileres, por si se pierde o se cambia el móvil
-    async copiaAuto(texto, hoy) {
-      if (!NATIVO || !P.Filesystem || localStorage.getItem('ma.copia') === hoy) return;
-      try {
-        await P.Filesystem.writeFile({ path: 'MisAlquileres/mis-alquileres-copia-auto.json', data: texto, directory: 'DOCUMENTS', encoding: 'utf8', recursive: true });
-        localStorage.setItem('ma.copia', hoy);
-      } catch (e) { /* sin permiso o sin espacio: no es grave, queda la copia manual */ }
+    // Copias programadas: se guardan en Documentos/MisAlquileres del propio móvil y se conservan las últimas «guardar»
+    enMovil: NATIVO && !!P.Filesystem,
+    async copiaEnMovil(nombre, bytes, guardar) {
+      if (!this.enMovil) throw new Error('Solo en la app de Android');
+      await P.Filesystem.writeFile({ path: 'MisAlquileres/' + nombre, data: aBase64(bytes), directory: 'DOCUMENTS', recursive: true });
+      const l = await this.copiasEnMovil();
+      for (const x of l.slice(Math.max(1, guardar || 5))) { try { await P.Filesystem.deleteFile({ path: 'MisAlquileres/' + x.nombre, directory: 'DOCUMENTS' }); } catch (e) { /* ya no estaba */ } }
     },
+    async copiasEnMovil() {
+      if (!this.enMovil) return [];
+      try {
+        const r = await P.Filesystem.readdir({ path: 'MisAlquileres', directory: 'DOCUMENTS' });
+        return (r.files || []).map((f) => (typeof f === 'string' ? { name: f } : f)).filter((f) => /^mis-alquileres-\d{4}-\d{2}-\d{2}.*\.(zip|json)$/.test(f.name))
+          .map((f) => ({ nombre: f.name, tam: f.size || 0 })).sort((a, b) => b.nombre.localeCompare(a.nombre));
+      } catch (e) { return []; }
+    },
+    async leerDeMovil(nombre) { const r = await P.Filesystem.readFile({ path: 'MisAlquileres/' + nombre, directory: 'DOCUMENTS' }); const s = atob(r.data), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; },
+    async compartirDeMovil(nombre) { const r = await P.Filesystem.getUri({ path: 'MisAlquileres/' + nombre, directory: 'DOCUMENTS' }); return P.Share.share({ title: nombre, files: [r.uri], dialogTitle: 'Enviar ' + nombre }); },
   };
 
   // ---------- Documentos y fotos (se guardan dentro de la app, no en la galería) ----------
@@ -85,6 +95,10 @@
       if (NATIVO && P.Filesystem) await P.Filesystem.writeFile({ path: 'adjuntos/' + archivo, data: aBase64(bytes), directory: 'DATA', recursive: true });
       else await idb('adj', 'readwrite', (o) => o.put(new Blob([bytes], { type: foto ? 'image/jpeg' : file.type }), archivo));
       return { archivo, mime: foto ? 'image/jpeg' : file.type || 'application/octet-stream', tam: bytes.length, nombre: file.name || archivo };
+    },
+    async escribir(archivo, bytes, mime) {
+      if (NATIVO && P.Filesystem) await P.Filesystem.writeFile({ path: 'adjuntos/' + archivo, data: aBase64(bytes), directory: 'DATA', recursive: true });
+      else await idb('adj', 'readwrite', (o) => o.put(new Blob([bytes], { type: mime || 'application/octet-stream' }), archivo));
     },
     async url(archivo) {
       if (NATIVO && P.Filesystem) { const r = await P.Filesystem.getUri({ path: 'adjuntos/' + archivo, directory: 'DATA' }); return C.convertFileSrc(r.uri); }

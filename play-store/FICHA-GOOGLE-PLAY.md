@@ -62,7 +62,7 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 
 🔒 TUS DATOS, EN TU MÓVIL
 • Sin cuentas, sin publicidad y sin enviar nada a servidores
-• Copia de seguridad en un archivo
+• Copias de seguridad automáticas (cada día, semana o mes) en el móvil, con los documentos y fotos si quieres, y envío a Drive o al correo
 
 Empieza en un minuto con el alta rápida o importa tus inmuebles desde Excel.
 
