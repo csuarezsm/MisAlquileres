@@ -33,6 +33,13 @@
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([texto], { type: mime || 'text/plain' })); a.download = nombre;
       document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
     },
+    // Comparte un texto como texto (no como archivo): WhatsApp lo pone en el cuadro de mensaje
+    async compartirTexto(texto) {
+      if (NATIVO && P.Share) return P.Share.share({ text: texto, dialogTitle: 'Enviar mensaje' });
+      if (navigator.share) return navigator.share({ text: texto });
+      await navigator.clipboard.writeText(texto);
+      return 'copiado';
+    },
     // Una copia al día en Documentos/MisAlquileres, por si se pierde o se cambia el móvil
     async copiaAuto(texto, hoy) {
       if (!NATIVO || !P.Filesystem || localStorage.getItem('ma.copia') === hoy) return;
@@ -86,6 +93,7 @@
   };
 
   window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda,
-    abrir(url) { window.open(url, '_blank'); },
+    // En la app de Android, navegar al enlace hace que Android lo abra en su app (WhatsApp); en el navegador, pestaña nueva
+    abrir(url) { if (NATIVO) window.location.href = url; else window.open(url, '_blank'); },
     alVolver(fn) { document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); }); } };
 })();
