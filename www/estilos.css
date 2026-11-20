@@ -58,3 +58,10 @@ table.t td:first-child, table.t th:first-child { text-align: left; } table.t th 
 .ley { display: flex; gap: 14px; font-size: 13px; color: var(--mut); margin-top: 4px; } .ley i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; background: var(--ok); } .ley i.ga { background: var(--mal); }
 :focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
 @media (min-width: 700px) { .kpis { grid-template-columns: repeat(4, 1fr); } .hoja { border-radius: 18px; bottom: 4%; } }
+.docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.doc { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); min-height: 44px; }
+.doc img { width: 100%; height: 72px; object-fit: cover; border-radius: 6px; background: var(--line); }
+.doc span { font-size: 34px; line-height: 72px; } .doc small { font-size: 11px; color: var(--mut); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+label.f.chk.tar { padding: 12px; }
+.toast > span:last-child { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.esp { margin-bottom: 12px; } #docimg { width: 100%; border-radius: 10px; display: block; }

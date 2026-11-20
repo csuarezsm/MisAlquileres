@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#24272c">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'">
 <title>Mis alquileres</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -24,6 +24,9 @@
 <section id="hoja" class="hoja" role="dialog" aria-modal="true" aria-labelledby="hoja-t" hidden></section>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script src="nucleo.js"></script>
+<script src="extras.js"></script>
+<script src="tablas.js"></script>
+<script src="pdf.js"></script>
 <script src="plataforma.js"></script>
 <script src="app.js"></script>
 </body>
