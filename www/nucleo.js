@@ -52,6 +52,9 @@
     recibo: 'Hola {nombre}, te confirmo que he recibido {importe_pagado} el {fecha_pago} por el alquiler de {inmueble} de {mes}. ¡Gracias! {propietario}',
     gasto: 'Hola {nombre}, te paso el importe de {concepto} de {inmueble} correspondiente a {periodo}: {importe}, según lo acordado en el contrato.\n\nForma de pago: {forma_pago}\n\nGracias, {propietario}',
     vencimiento: 'Hola {nombre}, te aviso de que el contrato de alquiler de {inmueble} vence el {fecha_fin}. ¿Quieres renovarlo? Coméntame y lo preparamos.\n\nUn saludo, {propietario}',
+    atraso2: 'Hola {nombre}, sigue pendiente el alquiler de {inmueble} de {mes}: {deuda}, que vencía el {fecha_cobro}. Necesito que me digas hoy cuándo lo vas a abonar.\n\nForma de pago: {forma_pago}\n\n{propietario}',
+    actualizacion: 'Hola {nombre}, como recoge el contrato de {inmueble}, la renta se actualiza cada año. A partir de {mes} pasa de {antes} a {ahora} ({indice}: {porcentaje}).\n\nCualquier duda me dices. {propietario}',
+    recibo_pdf: 'Hola {nombre}, te envío el recibo del alquiler de {inmueble} de {mes}. ¡Gracias! {propietario}',
   };
 
   function nuevo() {
@@ -59,7 +62,7 @@
       ajustes: { propietario: '', formaPago: 'Bizum o transferencia', limiteGratis: 1 },
       plantillas: { ...PLANTILLAS },
       inmuebles: [], inquilinos: [], contratos: [], cargos: [], pagos: [], conceptos: [], gastos: [], reembolsos: [], fianzas: [],
-      claves: {}, registro: [] };
+      claves: {}, registro: [], adjuntos: [], numeracion: {} };
   }
   const id = (s) => ++s.seq;
   const por = (lista, i) => lista.find((x) => x.id === i);
@@ -74,12 +77,14 @@
     const p = { ...base };
     for (const k of ['nombre', 'tipo', 'direccion', 'referencia', 'descripcion', 'notas']) if (d[k] !== undefined) p[k] = texto(d[k]);
     for (const k of ['superficie']) if (d[k] !== undefined) p[k] = d[k] == null || d[k] === '' ? null : Number(d[k]);
-    for (const k of ['valor', 'compraPrecio', 'compraGastos']) if (d[k] !== undefined) {
+    for (const k of ['valor', 'compraPrecio', 'compraGastos', 'valorCatastral', 'valorCatastralConstruccion']) if (d[k] !== undefined) {
       if (d[k] != null && !(esCent(d[k]) && d[k] >= 0)) throw err('IMPORTE', 'Importe no válido');
       p[k] = d[k];
     }
     if (d.compraFecha !== undefined) { if (d.compraFecha && !esFecha(d.compraFecha)) throw err('FECHA', 'Fecha de compra no válida'); p.compraFecha = d.compraFecha || null; }
     if (d.porUnidades !== undefined) p.porUnidades = !!d.porUnidades;
+    if (d.imputacionPct !== undefined) p.imputacionPct = Number(d.imputacionPct) === 2 ? 2 : 1.1;
+    if (p.valorCatastral != null && p.valorCatastralConstruccion != null && p.valorCatastralConstruccion > p.valorCatastral) throw err('IMPORTE', 'El valor catastral de la construcción no puede superar el valor catastral total');
     if (!p.nombre) throw err('DATOS', 'El nombre es obligatorio');
     if (!TIPOS.includes(p.tipo)) p.tipo = 'Otro';
     return p;
@@ -139,6 +144,21 @@
     const q = por(s.inquilinos, c.inquilinoId);
     return err('SOLAPE', `Ese inmueble ya tiene un contrato en esas fechas (${q ? q.nombre : 'otro inquilino'}, desde ${c.inicio}${finEfectivo(c) ? ' hasta ' + finEfectivo(c) : ''}).`);
   }
+  const VIVIENDA = ['Vivienda', 'Habitación'];
+  const LEY_VIVIENDA = '2023-05-26';
+  // Datos del contrato que no afectan a los recibos: uso, firma, actualización anual, IRPF y depósito de la fianza
+  function extrasContrato(d, ct, p) {
+    if (d.firma !== undefined) { if (d.firma && !esFecha(d.firma)) throw err('FECHA', 'Fecha de firma no válida'); ct.firma = d.firma || null; }
+    if (d.uso !== undefined) ct.uso = d.uso === 'otro' ? 'otro' : 'vivienda';
+    if (!ct.uso) ct.uso = p && VIVIENDA.includes(p.tipo) ? 'vivienda' : 'otro';
+    if (d.actualizacion !== undefined) ct.actualizacion = ['irav', 'ipc', 'fijo', 'ninguna'].includes(d.actualizacion) ? d.actualizacion : 'ninguna';
+    if (!ct.actualizacion) ct.actualizacion = ct.uso === 'vivienda' && (ct.firma || ct.inicio) >= LEY_VIVIENDA ? 'irav' : 'ipc';
+    if (d.actualizacionPct !== undefined) ct.actualizacionPct = d.actualizacionPct == null || d.actualizacionPct === '' ? null : Number(d.actualizacionPct);
+    if (d.reduccion !== undefined) ct.reduccion = d.reduccion == null || d.reduccion === '' ? null : [0, 50, 60, 70, 90].includes(Number(d.reduccion)) ? Number(d.reduccion) : null;
+    if (d.retencion !== undefined) ct.retencion = !!d.retencion;
+    if (!ct.deposito) ct.deposito = { organismo: '', fecha: null, referencia: '', noAplica: false, recuperado: null };
+    return ct;
+  }
   function crearContrato(s, d, hoy) {
     hoyOk(hoy);
     const p = exige(s.inmuebles, d.inmuebleId, 'Inmueble'); exige(s.inquilinos, d.inquilinoId, 'Inquilino');
@@ -153,7 +173,8 @@
     if (c) throw avisaConflicto(s, c);
     const ct = { id: id(s), inmuebleId: d.inmuebleId, inquilinoId: d.inquilinoId, inicio: d.inicio, fin: d.fin || null, diaCobro: dia,
       rentas: [{ desde: d.inicio.slice(0, 7), importe: d.importe }], fianza: d.fianza || 0, avisoMeses: d.avisoMeses == null ? 1 : Number(d.avisoMeses),
-      estado: 'activo', fechaBaja: null, avisoEnviado: null, vehiculo: texto(d.vehiculo), actividad: texto(d.actividad), notas: texto(d.notas) };
+      estado: 'activo', fechaBaja: null, llaves: null, avisoEnviado: null, vehiculo: texto(d.vehiculo), actividad: texto(d.actividad), notas: texto(d.notas) };
+    extrasContrato(d, ct, p);
     s.contratos.push(ct); anota(s, hoy, 'contrato_creado', ct.id);
     generarCargos(s, hoy);
     // Solo si el usuario lo marca expresamente: meses anteriores cobrados, señalados como estimados
@@ -176,6 +197,7 @@
     if (d.fianza !== undefined) { if (!(esCent(d.fianza) && d.fianza >= 0)) throw err('IMPORTE', 'Fianza no válida'); ct.fianza = d.fianza; }
     if (d.avisoMeses !== undefined) ct.avisoMeses = Number(d.avisoMeses) || 0;
     for (const k of ['vehiculo', 'actividad', 'notas']) if (d[k] !== undefined) ct[k] = texto(d[k]);
+    extrasContrato(d, ct, por(s.inmuebles, ct.inmuebleId));
     if (fin !== ct.fin) ct.avisoEnviado = null;
     if (inicio !== ct.inicio) { ct.rentas[0].desde = inicio.slice(0, 7); }
     ct.inicio = inicio; ct.fin = fin;
@@ -200,11 +222,11 @@
     anota(s, hoy, 'renta_revisada', i, { desde, importe });
     return ct;
   }
-  function finalizarContrato(s, i, { fecha, estado }, hoy) {
+  function finalizarContrato(s, i, { fecha, estado, llaves }, hoy) {
     const ct = exige(s.contratos, i, 'Contrato'); hoyOk(hoy);
     if (!esFecha(fecha) || fecha < ct.inicio) throw err('FECHA', 'Fecha de finalización no válida');
     if (!['finalizado', 'rescindido'].includes(estado)) throw err('DATOS', 'Estado no válido');
-    ct.estado = estado; ct.fechaBaja = fecha;
+    ct.estado = estado; ct.fechaBaja = fecha; ct.llaves = llaves && esFecha(llaves) && llaves >= fecha ? llaves : fecha;
     recortarCargos(s, ct, hoy); anota(s, hoy, 'contrato_' + estado, i, { fecha });
     return ct;
   }
@@ -214,7 +236,7 @@
     const c = conflicto(s, ct.inmuebleId, ct.inicio, fin || null, i);
     if (c) throw avisaConflicto(s, c);
     const anterior = finEfectivo(ct);
-    ct.estado = 'activo'; ct.fechaBaja = null; ct.fin = fin || null; ct.avisoEnviado = null;
+    ct.estado = 'activo'; ct.fechaBaja = null; ct.llaves = null; ct.fin = fin || null; ct.avisoEnviado = null;
     if (importe != null) revisarRenta(s, i, { desde: desde || (anterior ? mesMas(anterior.slice(0, 7), 1) : hoy.slice(0, 7)), importe }, hoy);
     generarCargos(s, hoy); anota(s, hoy, 'contrato_renovado', i, { fin: fin || null });
     return ct;
@@ -644,10 +666,11 @@
     const base = nuevo();
     for (const k of ['inmuebles', 'inquilinos', 'contratos', 'cargos', 'pagos', 'conceptos', 'gastos', 'reembolsos', 'fianzas', 'registro']) if (!Array.isArray(s[k])) throw err('COPIA', 'La copia está incompleta');
     const max = Math.max(0, ...['inmuebles', 'inquilinos', 'contratos', 'cargos', 'pagos', 'conceptos', 'gastos', 'reembolsos', 'fianzas'].flatMap((k) => s[k].map((x) => x.id || 0)));
-    return { ...base, ...s, pro: false, seq: Math.max(Number(s.seq) || 0, max), ajustes: { ...base.ajustes, ...s.ajustes, limiteGratis: base.ajustes.limiteGratis }, plantillas: { ...base.plantillas, ...s.plantillas }, claves: s.claves || {} };
+    return { ...base, ...s, pro: false, seq: Math.max(Number(s.seq) || 0, max), ajustes: { ...base.ajustes, ...s.ajustes, limiteGratis: base.ajustes.limiteGratis }, plantillas: { ...base.plantillas, ...s.plantillas },
+      claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {} };
   }
 
-  return { TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
+  return { VIVIENDA, LEY_VIVIENDA, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
     puedeCrearInmueble, crearInmueble, editarInmueble, archivarInmueble, eliminarInmueble, crearInquilino, editarInquilino, archivarInquilino, eliminarInquilino,
     crearContrato, editarContrato, revisarRenta, finalizarContrato, renovarContrato, eliminarContrato, situacionContrato, rentaEn, rentaActual, contratoEn, finEfectivo,
     generarCargos, pagadoDe, estadoCargo, registrarPago, anularPago, anularCargo, restaurarCargo, ajustarCargo, cargos,

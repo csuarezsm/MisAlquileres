@@ -6,8 +6,8 @@
   // ---------- Guardado local (IndexedDB; los datos no salen del dispositivo) ----------
   function bd() {
     return new Promise((ok, mal) => {
-      const r = indexedDB.open('misalquileres', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      const r = indexedDB.open('misalquileres', 2);
+      r.onupgradeneeded = () => { for (const n of ['kv', 'adj']) if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); };
       r.onsuccess = () => ok(r.result); r.onerror = () => mal(r.error);
     });
   }
@@ -22,6 +22,12 @@
     },
   };
 
+  async function idb(store, modo, fn) {
+    const d = await bd();
+    return new Promise((ok, mal) => { const tx = d.transaction(store, modo), q = fn(tx.objectStore(store)); tx.oncomplete = () => ok(q && q.result); tx.onerror = () => mal(tx.error); });
+  }
+  const aBase64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
+
   // ---------- Archivos: compartir, descargar y copia automática ----------
   const Archivos = {
     async compartir(nombre, texto, mime) {
@@ -31,6 +37,16 @@
         return;
       }
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([texto], { type: mime || 'text/plain' })); a.download = nombre;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    },
+    // Comparte un archivo binario (PDF): en Android abre el menú de compartir (WhatsApp, correo, Drive…)
+    async compartirBytes(nombre, bytes, mime, texto) {
+      if (NATIVO && P.Filesystem && P.Share) {
+        const r = await P.Filesystem.writeFile({ path: nombre, data: aBase64(bytes), directory: 'CACHE' });
+        await P.Share.share({ title: nombre, text: texto || undefined, files: [r.uri], dialogTitle: 'Enviar ' + nombre });
+        return;
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: mime })); a.download = nombre;
       document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
     },
     // Comparte un texto como texto (no como archivo): WhatsApp lo pone en el cuadro de mensaje
@@ -50,6 +66,39 @@
     },
   };
 
+  // ---------- Documentos y fotos (se guardan dentro de la app, no en la galería) ----------
+  async function reducirFoto(file) {
+    try {
+      const img = await createImageBitmap(file), max = 1600, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const b = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.82));
+      return b && b.size < file.size ? b : file;
+    } catch (e) { return file; }
+  }
+  const Adjuntos = {
+    async guardar(file) {
+      const foto = /^image\//.test(file.type) && !/gif|svg/.test(file.type), blob = foto ? await reducirFoto(file) : file;
+      if (blob.size > 15 * 1024 * 1024) throw Object.assign(new Error('El archivo pesa más de 15 MB'), { code: 'DATOS' });
+      const ext = foto ? 'jpg' : ((file.name.match(/\.(\w{1,5})$/) || [])[1] || 'bin').toLowerCase();
+      const archivo = `adj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`, bytes = new Uint8Array(await blob.arrayBuffer());
+      if (NATIVO && P.Filesystem) await P.Filesystem.writeFile({ path: 'adjuntos/' + archivo, data: aBase64(bytes), directory: 'DATA', recursive: true });
+      else await idb('adj', 'readwrite', (o) => o.put(new Blob([bytes], { type: foto ? 'image/jpeg' : file.type }), archivo));
+      return { archivo, mime: foto ? 'image/jpeg' : file.type || 'application/octet-stream', tam: bytes.length, nombre: file.name || archivo };
+    },
+    async url(archivo) {
+      if (NATIVO && P.Filesystem) { const r = await P.Filesystem.getUri({ path: 'adjuntos/' + archivo, directory: 'DATA' }); return C.convertFileSrc(r.uri); }
+      const b = await idb('adj', 'readonly', (o) => o.get(archivo)); return b ? URL.createObjectURL(b) : null;
+    },
+    async compartir(a) {
+      if (NATIVO && P.Filesystem && P.Share) { const r = await P.Filesystem.getUri({ path: 'adjuntos/' + a.archivo, directory: 'DATA' }); return P.Share.share({ title: a.nombre, files: [r.uri] }); }
+      const u = await this.url(a.archivo); if (u) window.open(u, '_blank');
+    },
+    async borrar(archivo) {
+      try { if (NATIVO && P.Filesystem) await P.Filesystem.deleteFile({ path: 'adjuntos/' + archivo, directory: 'DATA' }); else await idb('adj', 'readwrite', (o) => o.delete(archivo)); } catch (e) { /* ya no estaba */ }
+    },
+  };
+
   // ---------- Avisos del móvil (notificaciones locales, sin servidor) ----------
   const Avisos = {
     disponible: NATIVO && !!P.LocalNotifications,
@@ -66,10 +115,20 @@
         if (pend.notifications && pend.notifications.length) await P.LocalNotifications.cancel({ notifications: pend.notifications.map((n) => ({ id: n.id })) });
         if (!lista.length || !(await this.permiso(false))) return 0;
         const notifications = lista.map((a, i) => { const [y, m, d] = a.fecha.split('-').map(Number);
-          return { id: 1000 + i, title: a.titulo, body: a.texto, schedule: { at: new Date(y, m - 1, d, hora, 0, 0), allowWhileIdle: false } }; });
+          return { id: a.id || 1000 + i, title: a.titulo, body: a.texto, actionTypeId: a.accion || undefined, extra: a.datos || null, schedule: { at: new Date(y, m - 1, d, hora, 0, 0), allowWhileIdle: false } }; });
         await P.LocalNotifications.schedule({ notifications });
         return notifications.length;
       } catch (e) { return 0; }
+    },
+    // Botones de las notificaciones: «Cobrado» y «Avisar». Al pulsarlos se abre la app y se ejecuta la acción.
+    async preparar(alPulsar) {
+      if (!this.disponible) return;
+      try {
+        await P.LocalNotifications.registerActionTypes({ types: [
+          { id: 'COBRO', actions: [{ id: 'cobrado', title: 'Cobrado' }, { id: 'avisar', title: 'Avisar' }] },
+          { id: 'ATRASO', actions: [{ id: 'avisar', title: 'Enviar recordatorio' }, { id: 'cobrado', title: 'Ya ha pagado' }] }] });
+        P.LocalNotifications.addListener('localNotificationActionPerformed', (r) => alPulsar(r.actionId, (r.notification && r.notification.extra) || {}));
+      } catch (e) { /* sin notificaciones */ }
     },
   };
 
@@ -92,7 +151,7 @@
     },
   };
 
-  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda,
+  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos,
     // En la app de Android, navegar al enlace hace que Android lo abra en su app (WhatsApp); en el navegador, pestaña nueva
     abrir(url) { if (NATIVO) window.location.href = url; else window.open(url, '_blank'); },
     alVolver(fn) { document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); }); } };

@@ -24,9 +24,9 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 
 try {
   const p = await pagina({}, true);
-  await paso('arranque vacío: guía hacia el primer inmueble', async () => { await p.getByText('Empieza por tu primer inmueble').waitFor(); await foto(p, '00-vacio'); });
+  await paso('arranque vacío: alta rápida, importar o paso a paso', async () => { await p.getByText('Empieza en un minuto').waitFor(); await foto(p, '00-vacio'); });
   await paso('alta de inmueble con gastos habituales', async () => {
-    await p.getByRole('button', { name: 'Añadir inmueble' }).click(); await campo(p, 'nombre').fill('Piso Calle Real 4'); await campo(p, 'tipo').selectOption('Vivienda');
+    await p.getByRole('button', { name: 'Paso a paso' }).click(); await campo(p, 'nombre').fill('Piso Calle Real 4'); await campo(p, 'tipo').selectOption('Vivienda');
     await campo(p, 'compraPrecio').fill('120.000'); await guardar(p);
     await p.locator('#hoja').getByText('Gastos periódicos').waitFor(); const s = await S(p);
     assert.equal(s.inmuebles.length, 1); assert.equal(s.inmuebles[0].compraPrecio, 12000000); assert.equal(s.conceptos.length, 7);
@@ -51,7 +51,7 @@ try {
   await paso('cobro rápido, sin duplicar con doble pulsación, y deshacer', async () => {
     await p.goto(URL0 + '#inicio'); const b = p.locator('[data-a=cobrado]').first(); await b.dblclick();
     let s = await S(p); assert.equal(s.pagos.length, 1); assert.equal(s.pagos[0].importe, 65000);
-    await p.locator('#toast button').click(); s = await S(p); assert.ok(s.pagos[0].anulado); assert.equal(s.pagos.length, 1);
+    await p.locator('#toast button', { hasText: 'Deshacer' }).click(); s = await S(p); assert.ok(s.pagos[0].anulado); assert.equal(s.pagos.length, 1);
   });
   await paso('cobro parcial, exceso rechazado y reparto', async () => {
     await p.goto(URL0 + '#cobros'); await p.locator('[data-a=cobro]').first().click(); await foto(p, '02-recibo');
@@ -94,13 +94,52 @@ try {
   });
   await paso('panel, ajustes, ayuda e historial se pintan', async () => {
     await p.goto(URL0 + '#panel'); await p.getByText('Últimos 12 meses').waitFor(); await foto(p, '07-panel');
-    await p.goto(URL0 + '#ajustes'); await p.locator('[data-a=misDatos]').click(); await campo(p, 'propietario').fill('Carlos'); await guardar(p);
+    await p.goto(URL0 + '#ajustes'); await p.locator('[data-a=misDatos]').click(); await campo(p, 'propietario').fill('Carlos'); await campo(p, 'dni').fill('42000000T'); await guardar(p);
     await p.locator('[data-a=historial]').click(); await p.locator('#hoja').getByText('Cobro anulado').first().waitFor(); await p.keyboard.press('Escape');
     await p.locator('.cab [data-a=ayuda]').click(); await p.locator('#hoja').getByText('Cómo funciona').waitFor(); await p.keyboard.press('Escape'); await foto(p, '08-ajustes');
   });
   await paso('mensaje de WhatsApp preparado con los datos', async () => {
     await p.goto(URL0 + '#cobros'); const av = p.locator('[data-a=avisar]'); if (await av.count()) { await av.first().click();
-      const t = await p.locator('#msj').inputValue(); assert.match(t, /Hola Ana/); assert.match(t, /Carlos/); assert.doesNotMatch(t, /\{\w+\}/); await p.keyboard.press('Escape'); }
+      const t = await p.locator('#msj').inputValue(); assert.match(t, /Hola Ana/); assert.match(t, /Necesito que me digas hoy|venció/); assert.match(t, /Carlos/); assert.doesNotMatch(t, /\{\w+\}/); await p.keyboard.press('Escape'); }
+  });
+  await paso('recibo en PDF tras cobrar', async () => {
+    const id = await p.evaluate(() => { const s = window.__ma.S; return s.pagos.find((x) => !x.anulado).cargoId; });
+    await p.evaluate((i) => { const b = document.createElement('button'); b.dataset.a = 'cobro'; b.dataset.id = i; document.body.appendChild(b); b.click(); b.remove(); }, id);
+    const [d] = await Promise.all([p.waitForEvent('download'), p.locator('#hoja [data-a=reciboPdf]').click()]);
+    assert.match(d.suggestedFilename(), /^recibo-2026-\d{4}\.pdf$|^recibo-\d{4}-\d{4}\.pdf$/); const b = fs.readFileSync(await d.path(), 'latin1');
+    assert.ok(b.startsWith('%PDF') && /RECIBO DE ALQUILER/.test(b) && /Carlos/.test(b)); await p.keyboard.press('Escape');
+  });
+  await paso('documentos: adjuntar una foto al contrato y verla', async () => {
+    await p.goto(URL0 + '#contratos'); await p.locator('[data-a=contrato]').first().click();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR42mP8z8DwnwEJMDGgAhgDAJ0MAgEVIG8OAAAAAElFTkSuQmCC', 'base64');
+    await p.locator('#hoja input[data-adjuntar]').setInputFiles({ name: 'contrato-firmado.png', mimeType: 'image/png', buffer: png });
+    await p.locator('#hoja .doc').first().waitFor(); assert.equal((await S(p)).adjuntos.length, 1);
+    await p.locator('#hoja .doc').first().click(); await p.locator('#docimg').waitFor(); await p.waitForFunction(() => document.querySelector('#docimg').src.startsWith('blob:'));
+    await p.locator('#hoja [data-a=volverDoc]').click(); await p.locator('#hoja .doc').first().waitFor(); await foto(p, '09-documentos'); await p.keyboard.press('Escape');
+  });
+  await paso('depósito de la fianza en el Instituto Canario de la Vivienda', async () => {
+    await p.goto(URL0 + '#inicio'); await p.locator('.tar', { hasText: 'Depositar la fianza' }).click();
+    await campo(p, 'referencia').fill('ICV-123'); await guardar(p);
+    await p.locator('#hoja').getByText(/Depositada en Instituto Canario/).waitFor(); assert.equal((await S(p)).contratos[0].deposito.referencia, 'ICV-123'); await p.keyboard.press('Escape');
+  });
+  await paso('extracto del banco: propone, revisas y apunta sin duplicar', async () => {
+    const s0 = await S(p), c = s0.cargos.find((x) => x.importe - s0.pagos.filter((y) => y.cargoId === x.id && !y.anulado).reduce((a, y) => a + y.importe, 0) > 0);
+    const pend = c.importe - s0.pagos.filter((y) => y.cargoId === c.id && !y.anulado).reduce((a, y) => a + y.importe, 0);
+    const hoyIso = iso(new Date()), csv = `Fecha;Concepto;Importe\r\n${hoyIso.split('-').reverse().join('/')};TRANSFERENCIA ANA PEREZ GIL;${(pend / 100).toFixed(2).replace('.', ',')}\r\n${hoyIso.split('-').reverse().join('/')};COMPRA;-12,00\r\n`;
+    await p.goto(URL0 + '#cobros'); await p.locator('[data-a=extracto]').first().click();
+    await p.locator('#fext').setInputFiles({ name: 'extracto.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+    await p.locator('#hoja').getByText('Revisa antes de apuntar').waitFor(); await foto(p, '10-extracto');
+    await p.locator('#hoja [data-x=aplicar]').click(); await p.locator('#toast').getByText(/Apuntados 1 cobros/).waitFor();
+    assert.ok((await S(p)).pagos.some((x) => x.metodo === 'Banco'));
+    await p.locator('[data-a=extracto]').first().click(); await p.locator('#fext').setInputFiles({ name: 'extracto.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+    await p.locator('#hoja').getByText(/1 ya estaban apuntados/).waitFor(); await p.keyboard.press('Escape');
+  });
+  await paso('informe para la Renta del año en curso, con PDF', async () => {
+    await p.goto(URL0 + '#renta'); await p.getByText(/Ejercicio/).waitFor(); await p.locator('[data-a=anioRenta][data-d="1"]').click();
+    await p.locator('.sec h2', { hasText: 'Piso Calle Real 4' }).waitFor(); await foto(p, '11-renta');
+    await p.locator('[data-a=datosFiscales]').first().click(); await campo(p, 'valorCatastral').fill('80.000'); await campo(p, 'valorCatastralConstruccion').fill('50.000'); await guardar(p);
+    await p.getByText(/Amortización del inmueble/).first().waitFor();
+    const [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=rentaPdf]').click()]); assert.match(fs.readFileSync(await d.path(), 'latin1'), /Ejercicio/);
   });
   let copia;
   await paso('exportar CSV y copia de seguridad', async () => {
@@ -119,9 +158,18 @@ try {
     await q.locator('#toast').getByText('Copia recuperada').waitFor(); const s = await S(q); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, false);
     await q.goto(URL0 + '#inmuebles'); await q.locator('.fab').click(); await q.locator('#hoja').getByText('Google Play').waitFor(); await q.context().close();
   });
+  await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {
+    const q = await pagina(); await q.getByRole('button', { name: 'Alta rápida' }).click();
+    await campo(q, 'inmueble').fill('Plaza 7'); await campo(q, 'inquilino').fill('Eva Ruiz'); await campo(q, 'importe').fill('60'); await guardar(q);
+    await q.locator('#toast').getByText(/recibos de cada mes/).waitFor(); let s = await S(q); assert.equal(s.contratos.length, 1); assert.equal(s.cargos.length, 1);
+    await q.goto(URL0 + '#ajustes'); await q.locator('[data-a=importarCartera]').first().click();
+    await q.locator('#fcar').setInputFiles({ name: 'cartera.csv', mimeType: 'text/csv', buffer: Buffer.from('Inmueble;Inquilino;Inicio;Renta\r\nTrastero 2;Luis;01/10/2026;40\r\n') });
+    await q.locator('#hoja').getByText('Importación terminada').waitFor(); await q.locator('#hoja').getByText(/Fila 2/).waitFor();
+    s = await S(q); assert.equal(s.inmuebles.length, 1); await q.context().close();
+  });
   await paso('horizontal y tablet: sin desbordes', async () => {
     for (const [w, hh] of [[800, 390], [820, 1180], [360, 640]]) { await p.setViewportSize({ width: w, height: hh });
-      for (const v of ['inicio', 'cobros', 'gastos', 'contratos', 'panel', 'ajustes']) { await p.goto(URL0 + '#' + v); assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${v} desborda a ${w}px`); } }
+      for (const v of ['inicio', 'cobros', 'gastos', 'contratos', 'panel', 'ajustes', 'renta', 'mas']) { await p.goto(URL0 + '#' + v); assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${v} desborda a ${w}px`); } }
   });
   assert.deepEqual(errores, [], 'errores en consola');
   console.log(`OK interfaz: ${pasos} pasos`);

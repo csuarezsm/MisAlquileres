@@ -20,12 +20,23 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • Fechas, renta, día de cobro y fianza (recibida, devuelta o retenida)
 • Subidas de renta desde el mes que elijas
 • Aviso antes de que venza el contrato; renovar y finalizar
+• Aviso de la subida anual (IRAV o IPC) con el cálculo y el mensaje al inquilino
+• Depósito de la fianza y plazo para devolverla
 
 💶 COBROS
 • Un recibo cada mes, creado automáticamente
-• Marca «Cobrado» con un toque, o apunta pagos parciales
-• Atrasos a la vista, con lo que debe cada inquilino
+• Marca «Cobrado» con un toque, incluso desde la notificación
+• Recibo en PDF numerado para enviar al inquilino por WhatsApp
+• Recordatorios al inquilino a los 3 y a los 10 días de retraso
+• Importa el extracto del banco (Excel o CSV) y la app casa cada transferencia o Bizum con su recibo
 • Los cobros no se borran: se anulan y quedan en el historial
+
+🧾 DECLARACIÓN DE LA RENTA
+• Informe por inmueble: ingresos, gastos deducibles, intereses, amortización, reducción e imputación de días vacíos
+• En PDF o CSV, listo para trasladar a Renta Web o a tu asesor
+
+📎 DOCUMENTOS
+• Contrato firmado, DNI, facturas y fotos del estado del inmueble, guardados en cada ficha
 
 📉 GASTOS
 • IBI, comunidad, seguro, suministros… con su periodicidad
@@ -43,9 +54,11 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • Sin cuentas, sin publicidad y sin enviar nada a servidores
 • Copia de seguridad en un archivo y exportación a Excel (CSV)
 
+Empieza en un minuto con el alta rápida o importa tus inmuebles desde Excel.
+
 Gratis con un inmueble. Con un pago único puedes añadir todos los que quieras, sin suscripción.
 
-La app prepara los mensajes y abre WhatsApp: el envío lo haces tú. Las cifras son un resumen de lo que apuntas; no sustituyen a tu contabilidad ni a un asesor fiscal.
+La app prepara los mensajes y abre WhatsApp: el envío lo haces tú. Las cifras y el informe de la Renta son orientativos: no sustituyen a tu contabilidad ni a un asesor fiscal.
 
 ## Gráficos (en esta carpeta)
 
