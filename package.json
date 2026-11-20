@@ -1,0 +1,29 @@
+{
+  "name": "mis-alquileres",
+  "version": "1.0.0",
+  "description": "Mis alquileres: control de alquileres en el móvil (IT Canarias)",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs && node tests/app.test.mjs",
+    "sync": "cap sync android",
+    "capturas": "ANCHO=360 ALTO=640 ESCALA=3 CAPTURAS=play-store/capturas node tests/app.test.mjs",
+    "iconos": "node tools/iconos.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/share": "^8.0.3",
+    "@capgo/native-purchases": "^8.9.16"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "playwright": "^1.63.0"
+  }
+}

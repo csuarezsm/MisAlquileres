@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#24272c">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+<title>Mis alquileres</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<header class="cab"><div><h1 id="titulo">Mis alquileres</h1><small id="subtitulo"></small></div><button class="ico" data-a="ayuda" aria-label="Ayuda">?</button></header>
+<main id="vista" tabindex="-1"></main>
+<nav class="barra" aria-label="Secciones">
+  <a href="#inicio" data-v="inicio"><i>⌂</i>Inicio</a>
+  <a href="#cobros" data-v="cobros"><i>€</i>Cobros</a>
+  <a href="#gastos" data-v="gastos"><i>↧</i>Gastos</a>
+  <a href="#contratos" data-v="contratos"><i>✎</i>Contratos</a>
+  <a href="#mas" data-v="mas"><i>≡</i>Más</a>
+</nav>
+<div id="fondo" class="fondo" hidden></div>
+<section id="hoja" class="hoja" role="dialog" aria-modal="true" aria-labelledby="hoja-t" hidden></section>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="nucleo.js"></script>
+<script src="plataforma.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
