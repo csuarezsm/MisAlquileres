@@ -113,7 +113,7 @@
   }
   function datosInquilino(d, base = {}) {
     const q = { ...base };
-    for (const k of ['nombre', 'dni', 'telefono', 'email', 'domicilio', 'notas']) if (d[k] !== undefined) q[k] = texto(d[k]);
+    for (const k of ['nombre', 'dni', 'telefono', 'email', 'domicilio', 'notas', 'idioma']) if (d[k] !== undefined) q[k] = texto(d[k]);
     if (!q.nombre) throw err('DATOS', 'El nombre es obligatorio');
     return q;
   }

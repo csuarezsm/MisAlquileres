@@ -90,6 +90,10 @@
       if (NATIVO && P.Filesystem) { const r = await P.Filesystem.getUri({ path: 'adjuntos/' + archivo, directory: 'DATA' }); return C.convertFileSrc(r.uri); }
       const b = await idb('adj', 'readonly', (o) => o.get(archivo)); return b ? URL.createObjectURL(b) : null;
     },
+    async leer(archivo) {
+      if (NATIVO && P.Filesystem) { const r = await P.Filesystem.readFile({ path: 'adjuntos/' + archivo, directory: 'DATA' }); const s = atob(r.data), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
+      const bl = await idb('adj', 'readonly', (o) => o.get(archivo)); return bl ? new Uint8Array(await bl.arrayBuffer()) : null;
+    },
     async compartir(a) {
       if (NATIVO && P.Filesystem && P.Share) { const r = await P.Filesystem.getUri({ path: 'adjuntos/' + a.archivo, directory: 'DATA' }); return P.Share.share({ title: a.nombre, files: [r.uri] }); }
       const u = await this.url(a.archivo); if (u) window.open(u, '_blank');

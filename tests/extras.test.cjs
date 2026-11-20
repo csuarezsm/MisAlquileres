@@ -28,7 +28,7 @@ test('recibo: numeración correlativa por año y datos completos', () => {
   MA.registrarPago(s, { cargoId: s.cargos[1].id, importe: 65000 }, HOY);
   assert.equal(MA.datosRecibo(s, s.cargos[1].id, HOY).numero, '2026-0002');
   const pdf = Buffer.from(PDF.recibo(r)).toString('latin1');
-  assert.ok(pdf.startsWith('%PDF-1.4') && pdf.trimEnd().endsWith('%%EOF')); assert.match(pdf, /RECIBO DE ALQUILER/); assert.match(pdf, /P\\351rez/);
+  assert.ok(pdf.startsWith('%PDF-1.4') && pdf.trimEnd().endsWith('%%EOF')); assert.match(pdf, /Recibo de alquiler/); assert.match(pdf, /P\\351rez/);
 });
 test('PDF: estructura válida (xref apunta a cada objeto)', () => {
   const d = PDF.Documento(); for (let i = 0; i < 80; i++) d.parrafo('Línea de prueba con acentos áéíóú ñ y € número ' + i); const b = Buffer.from(d.bytes()).toString('latin1');
@@ -176,4 +176,18 @@ test('Renta: contrato anterior a la ley, 60 %; garaje sin reducción; inmueble s
   const inf = MA.informeRenta(s, 2025, HOY);
   const piso = inf.inmuebles.find((x) => x.nombre === 'Piso Real'), gar = inf.inmuebles.find((x) => x.nombre === 'Garaje');
   assert.equal(piso.reduccionPct, 60); assert.ok(gar.sinActividad); assert.equal(gar.imputacion.importe, Math.round(900000 * 0.011));
+});
+
+test('idiomas: diccionarios completos y marcadores', () => {
+  require('../www/idioma.js'); for (const l of ['en', 'de', 'fr', 'it']) require(`../www/i18n/${l}.js`);
+  const I = globalThis.Idioma, en = I.dic('en');
+  for (const l of ['de', 'fr', 'it']) assert.deepEqual(Object.keys(I.dic(l)).sort(), Object.keys(en).sort(), l);
+  for (const l of ['en', 'de', 'fr', 'it']) for (const [k, v] of Object.entries(I.dic(l))) {
+    const m = (s) => (s.match(/\{[a-z_]+\d?\}/g) || []).sort().join();
+    assert.equal(m(v), m(k.startsWith('plantilla.') ? MA.PLANTILLAS[k.slice(10)] || v : k), `${l}: ${k}`);
+  }
+  assert.equal(I.trad('Vence el 05/12/2026', 'en'), 'Due on 05/12/2026');
+  assert.equal(I.trad('Cobrado en noviembre 2026', 'de'), 'Erhalten im November 2026');
+  assert.equal(I.trad('Cobrar a Ana Pérez', 'fr'), 'Encaisser de Ana Pérez');
+  assert.equal(I.trad('20 de noviembre 2026', 'it'), '20 novembre 2026');
 });

@@ -26,14 +26,14 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 💶 COBROS
 • Un recibo cada mes, creado automáticamente
 • Marca «Cobrado» con un toque, incluso desde la notificación
-• Recibo en PDF numerado para enviar al inquilino por WhatsApp
+• Recibo en PDF numerado y compacto (medio folio), en el idioma del inquilino, para enviarlo por WhatsApp
 • Recordatorios al inquilino a los 3 y a los 10 días de retraso
 • Importa el extracto del banco (Excel o CSV) y la app casa cada transferencia o Bizum con su recibo
 • Los cobros no se borran: se anulan y quedan en el historial
 
 🧾 DECLARACIÓN DE LA RENTA
 • Informe por inmueble: ingresos, gastos deducibles, intereses, amortización, reducción e imputación de días vacíos
-• En PDF o CSV, listo para trasladar a Renta Web o a tu asesor
+• En PDF o Excel, listo para trasladar a Renta Web o a tu asesor
 
 📎 DOCUMENTOS
 • Contrato firmado, DNI, facturas y fotos del estado del inmueble, guardados en cada ficha
@@ -50,9 +50,19 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 🔔 AVISOS EN EL MÓVIL
 • El día que toca cobrar, cuando hay atrasos y cuando vence un contrato
 
+📑 INFORMES Y LISTADOS
+• Todo en Excel o PDF: inmuebles, inquilinos, contratos, recibos, cobros, deudas, gastos, fianzas, hipoteca, rentabilidad e historial
+• Filtros por inmueble, inquilino y fechas, o todo en un único Excel
+• Extracto de cada inquilino (lo pagado y lo que debe) en PDF
+• Todos los documentos y fotos en un ZIP
+
+🎨 A TU GUSTO
+• Tema claro u oscuro, seis colores, cuatro tamaños de letra y alto contraste
+• En español, inglés, alemán, francés e italiano; cada inquilino recibe sus mensajes y recibos en su idioma
+
 🔒 TUS DATOS, EN TU MÓVIL
 • Sin cuentas, sin publicidad y sin enviar nada a servidores
-• Copia de seguridad en un archivo y exportación a Excel (CSV)
+• Copia de seguridad en un archivo
 
 Empieza en un minuto con el alta rápida o importa tus inmuebles desde Excel.
 

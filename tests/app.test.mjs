@@ -7,11 +7,15 @@ const srv = http.createServer((q, r) => { const f = path.join(WWW, q.url.split('
   if (!f.startsWith(WWW) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'Content-Type': TIPOS[path.extname(f)] || 'application/octet-stream' }); r.end(fs.readFileSync(f)); });
 await new Promise((ok) => srv.listen(0, ok)); const URL0 = `http://127.0.0.1:${srv.address().port}/`;
 const nav = await chromium.launch({ channel: process.env.CHROME_CHANNEL || undefined, executablePath: process.env.CHROME_PATH || undefined });
-const errores = []; let pasos = 0;
+const errores = []; let pasos = 0; const PAGS = [], RECOGIDO = new Set();
+const recoger = async (q) => { try { for (const x of await q.evaluate(() => [...window.__faltan, ...JSON.parse(sessionStorage.getItem('f') || '[]')])) RECOGIDO.add(x); } catch (e) { /* cerrada */ } };
 async function pagina(opts = {}, tienda) {
   const ctx = await nav.newContext({ viewport: { width: +(process.env.ANCHO || 390), height: +(process.env.ALTO || 800) }, deviceScaleFactor: +(process.env.ESCALA || 2), locale: 'es-ES', timezoneId: 'Atlantic/Canary', acceptDownloads: true, ...opts });
+  await ctx.addInitScript(() => { new MutationObserver(() => document.querySelectorAll('#hoja details:not([open])').forEach((d) => { d.open = true; })).observe(document, { childList: true, subtree: true }); });
   if (tienda) await ctx.addInitScript(() => { window.Tienda = { disponible: true, precio: async () => '9,99 €', comprar: async () => { localStorage.setItem('t.comprado', '1'); return true; }, tiene: async () => localStorage.getItem('t.comprado') === '1' }; });
   const p = await ctx.newPage(); p.on('pageerror', (e) => errores.push(String(e))); p.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+  if (process.env.RECOGER) { await ctx.addInitScript(() => { window.__faltan = new Set(); const rev = (r) => { if (!window.Idioma || !r) return; const w = document.createTreeWalker(r, 5); let n = r; do { if (n.nodeType === 3) { const v = n.nodeValue.trim(); if (v && !(n.parentNode.closest && n.parentNode.closest('[data-notr],textarea,script,style'))) Idioma.trad(v, 'en'); } else if (n.nodeType === 1) for (const a of ['aria-label', 'placeholder', 'title']) if (n.hasAttribute(a)) Idioma.trad(n.getAttribute(a), 'en'); } while ((n = w.nextNode())); };
+      document.addEventListener('DOMContentLoaded', () => { rev(document.body); new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(rev))).observe(document.body, { childList: true, subtree: true }); }); window.addEventListener('beforeunload', () => { const v = JSON.parse(sessionStorage.getItem('f') || '[]'); sessionStorage.setItem('f', JSON.stringify([...new Set([...v, ...window.__faltan])])); }); }); PAGS.push(p); }
   await p.goto(URL0); await p.waitForFunction(() => window.__ma); return p;
 }
 const paso = async (n, fn) => { await fn(); pasos++; console.log('  ok ' + n); };
@@ -32,7 +36,7 @@ try {
     assert.equal(s.inmuebles.length, 1); assert.equal(s.inmuebles[0].compraPrecio, 12000000); assert.equal(s.conceptos.length, 7);
   });
   await paso('gasto periódico: poner importe a la comunidad', async () => {
-    await p.locator('#hoja .tar', { hasText: 'Comunidad' }).click(); await campo(p, 'importe').fill('45,50'); await campo(p, 'domiciliado').check(); await guardar(p);
+    await p.locator('#hoja :is(.tar,.fila-l)', { hasText: 'Comunidad' }).click(); await campo(p, 'importe').fill('45,50'); await campo(p, 'domiciliado').check(); await guardar(p);
     const s = await S(p); assert.ok(s.gastos.length >= 1); assert.equal(s.gastos[0].importe, 4550); assert.equal(s.gastos[0].pagado, null, 'no se paga solo');
     await p.locator('#hoja .cerrar').click();
   });
@@ -40,7 +44,7 @@ try {
     await p.getByRole('button', { name: 'Crear contrato' }).click(); await campo(p, 'nNombre').fill('Ana Pérez Gil'); await campo(p, 'nTelefono').fill('600 111 222');
     await campo(p, 'inicio').fill(iso(mesAnt)); await campo(p, 'importe').fill('650'); await campo(p, 'fianza').fill('650'); await guardar(p);
     const s = await S(p); assert.equal(s.contratos.length, 1); assert.equal(s.cargos.length, 3); assert.equal(s.pagos.length, 0);
-    await p.getByText('Atrasados').waitFor(); await foto(p, '01-inicio');
+    await p.getByText('Te deben').waitFor(); await foto(p, '01-inicio');
   });
   await paso('validación: contrato sin renta muestra el error en el formulario', async () => {
     await p.goto(URL0 + '#contratos'); await p.locator('.fab').click(); await guardar(p);
@@ -49,7 +53,7 @@ try {
     assert.match(await p.locator('#hoja .error').innerText(), /ya tiene un contrato/); await p.keyboard.press('Escape'); assert.equal((await S(p)).contratos.length, 1);
   });
   await paso('cobro rápido, sin duplicar con doble pulsación, y deshacer', async () => {
-    await p.goto(URL0 + '#inicio'); const b = p.locator('[data-a=cobrado]').first(); await b.dblclick();
+    await p.goto(URL0 + '#inicio'); await p.locator('[data-a=cobrarDeuda]').first().click(); await campo(p, 'importe').fill('650'); await p.locator('#hoja form button[type=submit]').dblclick();
     let s = await S(p); assert.equal(s.pagos.length, 1); assert.equal(s.pagos[0].importe, 65000);
     await p.locator('#toast button', { hasText: 'Deshacer' }).click(); s = await S(p); assert.ok(s.pagos[0].anulado); assert.equal(s.pagos.length, 1);
   });
@@ -107,7 +111,7 @@ try {
     await p.evaluate((i) => { const b = document.createElement('button'); b.dataset.a = 'cobro'; b.dataset.id = i; document.body.appendChild(b); b.click(); b.remove(); }, id);
     const [d] = await Promise.all([p.waitForEvent('download'), p.locator('#hoja [data-a=reciboPdf]').click()]);
     assert.match(d.suggestedFilename(), /^recibo-2026-\d{4}\.pdf$|^recibo-\d{4}-\d{4}\.pdf$/); const b = fs.readFileSync(await d.path(), 'latin1');
-    assert.ok(b.startsWith('%PDF') && /RECIBO DE ALQUILER/.test(b) && /Carlos/.test(b)); await p.keyboard.press('Escape');
+    assert.ok(b.startsWith('%PDF') && /Recibo de alquiler/.test(b) && /Carlos/.test(b)); await p.keyboard.press('Escape');
   });
   await paso('documentos: adjuntar una foto al contrato y verla', async () => {
     await p.goto(URL0 + '#contratos'); await p.locator('[data-a=contrato]').first().click();
@@ -142,10 +146,21 @@ try {
     const [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=rentaPdf]').click()]); assert.match(fs.readFileSync(await d.path(), 'latin1'), /Ejercicio/);
   });
   let copia;
-  await paso('exportar CSV y copia de seguridad', async () => {
-    await p.goto(URL0 + '#ajustes'); let [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=csv][data-t=Pagos]').click()]);
-    const csv = fs.readFileSync(await d.path(), 'utf8'); assert.match(csv, /Transferencia devuelta/); assert.match(csv, /Ana Pérez Gil/);
+  await paso('informes y listados: Excel, PDF, libro completo, extracto; y copia de seguridad', async () => {
+    await p.goto(URL0 + '#informes'); const baja = async (sel) => { const [x] = await Promise.all([p.waitForEvent('download'), p.locator(sel).click()]); return fs.readFileSync(await x.path()); };
+    let b = await baja('[data-a=inf][data-k=cobros][data-f=xlsx]'); assert.equal(b.slice(0, 2).toString(), 'PK'); const tx = b.toString('utf8'); assert.match(tx, /Transferencia devuelta/); assert.match(tx, /Ana Pérez Gil/);
+    b = await baja('[data-a=inf][data-k=recibos][data-f=pdf]'); assert.ok(b.toString('latin1').startsWith('%PDF'));
+    b = await baja('[data-a=libroCompleto]'); for (const n of ['Inmuebles', 'Contratos', 'Gastos', 'Historial']) assert.match(b.toString('utf8'), new RegExp(n));
+    await p.locator('[data-filtro=inquilinoId]').selectOption({ index: 1 }); await p.waitForTimeout(200);
+    b = await baja('[data-a=extractoInq]'); assert.ok(b.toString('latin1').startsWith('%PDF'));
+    await p.goto(URL0 + '#ajustes'); let d;
     [d] = await Promise.all([p.waitForEvent('download'), p.locator('[data-a=copia]').click()]); copia = await d.path(); assert.equal(JSON.parse(fs.readFileSync(copia, 'utf8')).formato, 'mis-alquileres');
+  });
+  await paso('apariencia: color y tamaño de letra se aplican y se guardan', async () => {
+    await p.goto(URL0 + '#apariencia'); await p.locator('[data-a=ap][data-k=acento][data-v="#2c62c6"]').click(); await p.locator('[data-a=ap][data-k=fs][data-v="1.15"]').click();
+    const ap = await p.evaluate(() => JSON.parse(localStorage.getItem('ma.ap'))); assert.equal(ap.acento, '#2c62c6'); assert.equal(ap.fs, 1.15);
+    assert.equal(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--fs').trim()), '1.15'); await foto(p, '09-apariencia');
+    await p.locator('[data-a=ap][data-k=fs][data-v="1"]').click(); await p.locator('[data-a=ap][data-k=acento][data-v="#e8b004"]').click();
   });
   await paso('los datos siguen ahí al recargar', async () => { const antes = await S(p); await p.waitForTimeout(600); await p.reload(); await p.waitForFunction(() => window.__ma);
     const s = await S(p); assert.equal(s.pagos.length, antes.pagos.length); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, true); });
@@ -156,7 +171,7 @@ try {
   await paso('recuperar la copia en una instalación nueva (sin versión completa)', async () => {
     const q = await pagina(); await q.goto(URL0 + '#ajustes'); await q.locator('[data-a=restaurar]').click(); await q.locator('#fcopia').setInputFiles(copia);
     await q.locator('#toast').getByText('Copia recuperada').waitFor(); const s = await S(q); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, false);
-    await q.goto(URL0 + '#inmuebles'); await q.locator('.fab').click(); await q.locator('#hoja').getByText('Google Play').waitFor(); await q.context().close();
+    await q.goto(URL0 + '#inmuebles'); await q.locator('.fab').click(); await q.locator('#hoja').getByText('Google Play').waitFor(); if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
   await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {
     const q = await pagina(); await q.getByRole('button', { name: 'Alta rápida' }).click();
@@ -165,7 +180,7 @@ try {
     await q.goto(URL0 + '#ajustes'); await q.locator('[data-a=importarCartera]').first().click();
     await q.locator('#fcar').setInputFiles({ name: 'cartera.csv', mimeType: 'text/csv', buffer: Buffer.from('Inmueble;Inquilino;Inicio;Renta\r\nTrastero 2;Luis;01/10/2026;40\r\n') });
     await q.locator('#hoja').getByText('Importación terminada').waitFor(); await q.locator('#hoja').getByText(/Fila 2/).waitFor();
-    s = await S(q); assert.equal(s.inmuebles.length, 1); await q.context().close();
+    s = await S(q); assert.equal(s.inmuebles.length, 1); if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
   await paso('horizontal y tablet: sin desbordes', async () => {
     for (const [w, hh] of [[800, 390], [820, 1180], [360, 640]]) { await p.setViewportSize({ width: w, height: hh });
@@ -174,4 +189,4 @@ try {
   assert.deepEqual(errores, [], 'errores en consola');
   console.log(`OK interfaz: ${pasos} pasos`);
 } catch (e) { console.error('FALLO:', e.message, '\n', errores.join('\n')); process.exitCode = 1; }
-finally { await nav.close(); srv.close(); }
+finally { if (process.env.RECOGER) { for (const q of PAGS) await recoger(q); fs.writeFileSync(process.env.RECOGER, JSON.stringify([...RECOGIDO], null, 1)); } await nav.close(); srv.close(); }
