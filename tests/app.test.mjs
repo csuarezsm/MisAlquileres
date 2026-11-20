@@ -162,10 +162,10 @@ try {
       A.copiasEnMovil = async () => window.__copias.map(({ nombre, tam }) => ({ nombre, tam })); window.__ma.pinta(); });
     await p.goto(URL0 + '#ajustes'); assert.match(await p.locator('[data-a=copiasConf]').innerText(), /Cada día · Con documentos y fotos · Solo en el móvil/);
     await p.locator('[data-a=copiasConf]').click(); await campo(p, 'frecuencia').selectOption('semanal'); await campo(p, 'guardar').selectOption('3'); await guardar(p);
-    await p.waitForFunction(() => window.__copias.length === 1); let c = await p.evaluate(() => ({ n: window.__copias[0].nombre, a: window.__ma.S.ajustes.copias }));
+    await p.waitForFunction(() => window.__copias.length === 1 && (window.__ma.S.ajustes.copias || {}).ultima); let c = await p.evaluate(() => ({ n: window.__copias[0].nombre, a: window.__ma.S.ajustes.copias }));
     assert.match(c.n, /^mis-alquileres-\d{4}-\d{2}-\d{2}-completa\.zip$/); assert.equal(c.a.frecuencia, 'semanal'); assert.equal(c.a.guardar, 3); assert.ok(c.a.ultima);
-    await p.evaluate(() => { window.__copias = []; window.__ma.S.ajustes.copias.ultima = window.MA.masDias(window.__ma.S.ajustes.copias.ultima, -8); document.dispatchEvent(new Event('visibilitychange')); });
-    await p.waitForFunction(() => window.__copias.length === 1); await p.locator('#toast').waitFor({ state: 'detached' }).catch(() => {});
+    await p.evaluate(() => { window.__copias = []; window.__antes = window.__ma.S.ajustes.copias.ultima = window.MA.masDias(window.__ma.S.ajustes.copias.ultima, -8); document.dispatchEvent(new Event('visibilitychange')); });
+    await p.waitForFunction(() => window.__copias.length === 1 && window.__ma.S.ajustes.copias.ultima !== window.__antes); await p.locator('#toast').waitFor({ state: 'detached' }).catch(() => {});
     await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=recuperarCopia]').first().waitFor(); await foto(p, '10-copias'); await p.keyboard.press('Escape');
   });
   await paso('Google Drive: conectar, subir la copia, ver la lista y recuperar', async () => {
@@ -177,7 +177,7 @@ try {
       D.bajar = async (id) => window.__drive.find((x) => x.id === id).b; D.desconectar = async () => { D.token = null; };
       window.__ma.pinta(); });
     await p.goto(URL0 + '#ajustes'); await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=conectarDrive]').click();
-    await p.waitForFunction(() => window.__drive.length === 1); let s = await S(p);
+    await p.waitForFunction(() => window.__drive.length === 1 && (window.__ma.S.ajustes.copias || {}).driveUltima); let s = await S(p);
     assert.equal(s.ajustes.copias.drive, true); assert.equal(s.ajustes.copias.driveCuenta, 'carlos@ejemplo.com'); assert.ok(s.ajustes.copias.driveUltima);
     await p.locator('#hoja').getByText('carlos@ejemplo.com').waitFor(); await foto(p, '11-drive');
     const antes = s.pagos.length; await p.evaluate(() => { window.__ma.S.pagos.push({ id: 99999, cargoId: 1, importe: 1, fecha: '2020-01-01' }); });
