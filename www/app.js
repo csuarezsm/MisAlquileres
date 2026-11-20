@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.2.1';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,6 +23,10 @@
   function leerAp() { try { return { ...AP_DEF, ...JSON.parse(localStorage.getItem('ma.ap') || '{}') }; } catch (e) { return { ...AP_DEF }; } }
   const rgbDe = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
   const mezcla = (a, b, k) => '#' + a.map((x, i) => Math.round(x * k + b[i] * (1 - k)).toString(16).padStart(2, '0')).join('');
+  // El hueco bajo el contenido sigue a la altura real de la barra inferior (crece con el tamaño de letra y la zona segura)
+  function medirBarra() { const b = $('.barra'); if (b) document.documentElement.style.setProperty('--barra', b.offsetHeight + 'px'); }
+  if (typeof ResizeObserver !== 'undefined' && $('.barra')) new ResizeObserver(medirBarra).observe($('.barra'));
+  addEventListener('resize', medirBarra);
   function aplicarAp(a) {
     const r = document.documentElement, oscuro = a.tema === 'oscuro' || (a.tema === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches), c = rgbDe(a.acento);
     if (a.tema === 'auto') delete r.dataset.tema; else r.dataset.tema = a.tema;
