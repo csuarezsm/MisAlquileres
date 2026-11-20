@@ -1,0 +1,72 @@
+name: Android (AAB para Google Play)
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', 'play-store/**', '*.md']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci
+      - name: Comprobar que la versión coincide en todos los sitios
+        run: |
+          V=$(node -p "require('./package.json').version")
+          grep -q "versionName \"$V\"" android/app/build.gradle || { echo "versionName de build.gradle no es $V"; exit 1; }
+          grep -q "APP_VERSION = '$V'" www/app.js || { echo "APP_VERSION de www/app.js no es $V"; exit 1; }
+          grep -q "misalquileres-v$V'" www/sw.js || { echo "CACHE de www/sw.js no es $V"; exit 1; }
+          echo "VERSION=$V" >> $GITHUB_ENV
+      - name: Pruebas (si fallan, no se compila)
+        run: |
+          npx playwright install --with-deps chromium
+          npm test
+      - run: npx cap sync android
+      - name: Clave de firma
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KS" || { echo "Falta el secreto ANDROID_KEYSTORE_BASE64"; exit 1; }
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/misalquileres.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/misalquileres.jks" >> $GITHUB_ENV
+      - name: Compilar AAB (Google Play) y APK (prueba directa)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cd android && chmod +x gradlew && ./gradlew --no-daemon bundleRelease assembleRelease
+          cp app/build/outputs/bundle/release/app-release.aab ../mis-alquileres-play.aab
+          cp app/build/outputs/apk/release/app-release.apk ../mis-alquileres.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mis-alquileres-${{ env.VERSION }}
+          path: mis-alquileres*.a*
+      - name: Publicar la Release (si la versión es nueva)
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then echo "La versión v$VERSION ya existe"; echo "nueva=no" >> $GITHUB_OUTPUT; exit 0; fi
+          gh release create "v$VERSION" mis-alquileres-play.aab mis-alquileres.apk --title "Mis alquileres $VERSION" --notes "Versión $VERSION"
+          echo "nueva=si" >> $GITHUB_OUTPUT
+      # Subida automática a Google Play (prueba interna). Solo si existe el secreto y la versión es nueva.
+      # La PRIMERA vez el .aab se sube a mano en Play Console: Google no deja crear la app desde aquí.
+      - name: Comprobar si hay cuenta de servicio de Google Play
+        id: play
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: echo "hay=$([ -n "$SA" ] && echo si || echo no)" >> $GITHUB_OUTPUT
+      - name: Subir a Google Play (prueba interna)
+        if: steps.release.outputs.nueva == 'si' && steps.play.outputs.hay == 'si'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.itcanarias.misalquileres
+          releaseFiles: mis-alquileres-play.aab
+          track: internal
+          status: ${{ vars.PLAY_STATUS || 'completed' }}
