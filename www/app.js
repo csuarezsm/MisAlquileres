@@ -1,8 +1,8 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.3.0';
-  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, NATIVO } = window.Plataforma;
+  const APP_VERSION = '1.4.0';
+  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const eur = MA.euros;
@@ -66,13 +66,22 @@
     return { nombre: `mis-alquileres-${HOY}-completa.zip`, bytes: Exportar.zip(arch), mime: 'application/zip' };
   }
   let copiando = false;
+  // Se hace al abrir o volver a la app cuando toca: en el móvil y, si está conectado, en Google Drive.
+  // Si una de las dos falla, se reintenta la próxima vez sin repetir la que salió bien.
   async function copiaProgramada(forzar) {
-    const c = confCopias(); if (!Archivos.enMovil || copiando || (!forzar && (!FREC[c.frecuencia] || !S.contratos.length))) return false;
-    if (!forzar && c.ultima && MA.diasEntre(c.ultima, HOY) < FREC[c.frecuencia]) return false;
-    copiando = true;
-    try { const k = await crearCopia(c.adjuntos); await Archivos.copiaEnMovil(k.nombre, k.bytes, c.guardar); S.ajustes.copias = { ...c, ultima: HOY, error: null }; return true; }
-    catch (e) { S.ajustes.copias = { ...c, error: HOY }; return false; }
-    finally { copiando = false; guardar(); }
+    const c = confCopias(), f = FREC[c.frecuencia], conDrive = c.drive && Drive.disponible;
+    if (!(Archivos.enMovil || conDrive) || copiando || (!forzar && (!f || !S.contratos.length))) return false;
+    const tocaMovil = Archivos.enMovil && (forzar || !c.ultima || MA.diasEntre(c.ultima, HOY) >= f);
+    const tocaDrive = conDrive && (forzar || !c.driveUltima || MA.diasEntre(c.driveUltima, HOY) >= f);
+    if (!tocaMovil && !tocaDrive) return false;
+    copiando = true; const r = { ...c }; let ok = false;
+    try {
+      const k = await crearCopia(c.adjuntos);
+      if (tocaMovil) { try { await Archivos.copiaEnMovil(k.nombre, k.bytes, c.guardar); r.ultima = HOY; r.error = null; ok = true; } catch (e) { r.error = HOY; } }
+      if (tocaDrive) { try { await Drive.subir(k.nombre, k.bytes, k.mime, c.guardar); r.driveUltima = HOY; r.driveError = null; ok = true; } catch (e) { r.driveError = HOY; } }
+    } catch (e) { r.error = HOY; }
+    finally { S.ajustes.copias = { ...confCopias(), ...r }; copiando = false; guardar(); }
+    return ok;
   }
   // Si pasa la fecha de la copia sin abrir la app, un aviso recuerda abrirla (la copia se hace al abrir)
   function avisoCopia() {
@@ -90,9 +99,11 @@
     toast(z ? `Copia recuperada, con ${rec} documentos y fotos` : 'Copia recuperada');
   }
   function resumenCopias() {
-    const c = confCopias(); if (!Archivos.enMovil) return 'Disponibles en la app de Android';
+    const c = confCopias(); if (!Archivos.enMovil && !Drive.disponible) return 'Disponibles en la app de Android';
     if (!FREC[c.frecuencia]) return 'Desactivadas';
-    return `${{ diaria: 'Cada día', semanal: 'Cada semana', mensual: 'Cada mes' }[c.frecuencia]}${c.adjuntos ? ', con documentos y fotos' : ', solo los datos'}${c.ultima ? '. Última: ' + fecha(c.ultima) : ''}`;
+    const u = [c.ultima, c.drive ? c.driveUltima : null].filter(Boolean).sort().pop();
+    return [{ diaria: 'Cada día', semanal: 'Cada semana', mensual: 'Cada mes' }[c.frecuencia], c.adjuntos ? 'Con documentos y fotos' : 'Solo los datos',
+      c.drive ? 'Móvil y Google Drive' : 'Solo en el móvil', u ? 'Última: ' + fecha(u) : ''].filter(Boolean).join(' · ');
   }
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
 
@@ -293,7 +304,8 @@
     inicio() {
       if (!S.inmuebles.length) return `<div class="vacio"><b>Empieza en un minuto</b><p>Apunta el inmueble, quién lo alquila y cuánto paga. La app creará los recibos de cada mes y te avisará.</p>
         <div class="acc centro"><button class="btn pri" data-a="altaRapida">Alta rápida</button></div>
-        <div class="acc centro"><button class="btn" data-a="importarCartera">Importar desde Excel</button><button class="btn" data-a="nuevoInmueble">Paso a paso</button></div></div>`;
+        <div class="acc centro"><button class="btn" data-a="importarCartera">Importar desde Excel</button><button class="btn" data-a="nuevoInmueble">Paso a paso</button></div>
+        <div class="acc centro"><button class="btn txt" data-a="restaurar">¿Ya usabas la app? Recuperar una copia</button></div></div>`;
       if (!S.contratos.length) return vacio('Ahora, el contrato', 'Indica quién alquila el inmueble, desde cuándo y cuánto paga.', ['nuevoContrato', 'Crear contrato']);
       const k = MA.panel(S, HOY), cs = MA.cargos(S, HOY, (c) => !c.anulado), gs = MA.gastos(S, HOY, (g) => !g.anulado), finMes = MA.masMeses(HOY.slice(0, 7) + '-01', 1);
       const ds = deudas(), mes = cs.filter((c) => (c.estado === 'pendiente' || c.estado === 'parcial') && c.vence >= HOY && c.vence < finMes);
@@ -392,7 +404,8 @@
           ${item('avisosConf', 'campana', 'Avisos en el móvil', !Avisos.disponible ? 'Disponibles en la app de Android' : S.ajustes.avisos ? `Activados, a las ${S.ajustes.horaAvisos || 9}:00` : 'Desactivados')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}</div>`)}
         ${sec('Copia de seguridad', '', `<p class="nota">Tus datos están solo en este móvil. Si lo pierdes o lo cambias, la copia es la forma de recuperarlos.</p>
           <div class="lista">${item('copiasConf', 'reloj', 'Copias automáticas', resumenCopias())}${item('copia', 'nube', 'Guardar una copia ahora', S.ajustes.ultimaCopia ? 'Para Drive o el correo. Última: ' + fecha(S.ajustes.ultimaCopia) : 'Para Drive o el correo')}${item('restaurar', 'bajar', 'Recuperar una copia', 'Sustituye los datos actuales')}</div>
-          ${confCopias().error && confCopias().error >= (confCopias().ultima || '') ? '<p class="nota esp">La última copia automática no se ha podido guardar. Revisa el espacio libre o guarda una copia a mano.</p>' : ''}`)}
+          ${confCopias().error && confCopias().error >= (confCopias().ultima || '') ? '<p class="nota esp">La última copia automática no se ha podido guardar. Revisa el espacio libre o guarda una copia a mano.</p>' : ''}
+          ${confCopias().drive && confCopias().driveError && confCopias().driveError >= (confCopias().driveUltima || '') ? '<p class="nota esp">La última copia no se ha podido subir a Google Drive (sin conexión o sin permiso). Se volverá a intentar al abrir la app.</p>' : ''}`)}
         ${sec('Importar y exportar', '', `<div class="lista">${item('#informes', 'informe', 'Informes y listados', 'Excel o PDF de todo lo que tienes')}${item('importarCartera', 'subir', 'Importar desde Excel', 'Inmuebles, inquilinos y contratos')}${item('plantillaCartera', 'bajar', 'Descargar la plantilla', 'Para preparar la importación')}</div>`)}
         ${sec('Otros', '', `<div class="lista">${item('historial', 'reloj', 'Historial de cambios', 'Cobros, anulaciones y cambios anotados')}${item('privacidad', 'escudo', 'Privacidad', 'Qué datos guarda la app y dónde')}${item('borrarTodo', 'borrar', 'Borrar todos los datos', 'Deja la app como recién instalada')}</div>`)}`;
     },
@@ -728,22 +741,40 @@
         alGuardar: (d) => { S.ajustes.avisos = d.avisos; S.ajustes.horaAvisos = Number(d.horaAvisos); if (d.avisos) Avisos.permiso(true).then((ok) => { if (!ok) { S.ajustes.avisos = false; guardar(); pinta(); toast('Android no ha dado permiso para mostrar avisos'); } else guardar(); }); } }); },
     async copia() { try { const c = confCopias(); if (c.adjuntos && S.adjuntos.length) toast('Preparando la copia…'); const k = await crearCopia(c.adjuntos);
       await Archivos.compartirBytes(k.nombre, k.bytes, k.mime); S.ajustes.ultimaCopia = HOY; guardar(); pinta(); toast('Copia preparada'); } catch (e) { toast('No se ha guardado la copia'); } },
-    async copiasConf() { if (!Archivos.enMovil) return toast('Las copias automáticas están disponibles en la app de Android');
+    async copiasConf() { if (!Archivos.enMovil && !Drive.disponible) return toast('Las copias automáticas están disponibles en la app de Android');
       const c = confCopias(), l = await Archivos.copiasEnMovil(), kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
       formulario({ titulo: 'Copias automáticas', valores: { frecuencia: FREC[c.frecuencia] ? c.frecuencia : 'nunca', adjuntos: c.adjuntos, guardar: c.guardar },
         defs: [{ html: '<p class="sub">Se hacen solas al abrir la app cuando toca y se guardan en este móvil, en Documentos › MisAlquileres. Con los avisos activados, te recuerda abrirla si pasa la fecha.</p>' },
           { k: 'frecuencia', e: 'Cada cuánto', t: 'select', op: [['diaria', 'Cada día'], ['semanal', 'Cada semana'], ['mensual', 'Cada mes'], ['nunca', 'Nunca']] },
           { k: 'adjuntos', t: 'check', e: 'Incluir los documentos y fotos', ayuda: 'La copia será un ZIP con todo. Ocupa más, pero lo recupera todo de una vez.' },
           { k: 'guardar', e: 'Copias que se conservan', t: 'select', op: [3, 5, 7, 10, 15, 30].map((x) => [x, String(x)]) }],
-        pie: `<div class="acc"><button class="btn" data-a="copiaYa">Hacer una copia ahora</button></div>
+        pie: `${Drive.disponible ? `<h3>Google Drive</h3>${c.drive ? `<p class="sub">Las copias también se suben a la carpeta «Mis alquileres» de tu Google Drive.</p>${c.driveCuenta ? `<p class="sub">Cuenta: <b data-notr>${h(c.driveCuenta)}</b></p>` : ''}${c.driveUltima ? `<p class="sub">${h('Última: ' + fecha(c.driveUltima))}</p>` : ''}
+            <div class="acc"><button class="btn peq" data-a="driveCopias">Ver copias en Drive</button><button class="btn txt peq" data-a="desconectarDrive">Desconectar</button></div>`
+            : `<p class="sub">Guárdalas también en tu Google Drive: si pierdes o cambias de móvil, las recuperas desde allí. La app solo ve los archivos que ella misma crea.</p><div class="acc"><button class="btn pri" data-a="conectarDrive">Guardar también en Google Drive</button></div>`}` : ''}
+          <div class="acc esp"><button class="btn" data-a="copiaYa">Hacer una copia ahora</button></div>
           <h3>Copias en este móvil</h3>${l.length ? `<div class="filas">${l.map((x) => `<div class="fila-l"><span><b>${fecha((x.nombre.match(/\d{4}-\d{2}-\d{2}/) || [''])[0])}</b><br><span class="sub">${/\.zip$/.test(x.nombre) ? 'Con documentos y fotos' : 'Solo los datos'}${x.tam ? ' · ' + kb(x.tam) : ''}</span></span><span class="der"><button class="btn peq" data-a="enviarCopia" data-n="${h(x.nombre)}">Enviar</button><button class="btn peq" data-a="recuperarCopia" data-n="${h(x.nombre)}">Recuperar</button></span></div>`).join('')}</div>` : '<p class="sub">Todavía no hay ninguna.</p>'}
-          <p class="nota esp">Si pierdes o cambias de móvil, estas copias se van con él. De vez en cuando, pulsa «Enviar» y guárdala en Drive o en tu correo.</p>`,
+          ${c.drive ? '' : '<p class="nota esp">Si pierdes o cambias de móvil, estas copias se van con él. De vez en cuando, pulsa «Enviar» y guárdala en Drive o en tu correo.</p>'}`,
         alGuardar: (d) => { S.ajustes.copias = { ...c, frecuencia: d.frecuencia, adjuntos: !!d.adjuntos, guardar: Number(d.guardar) || 7 }; },
         despues: () => { copiaProgramada(); toast('Copias automáticas guardadas'); } }); },
-    async copiaYa() { toast('Haciendo la copia…'); if (await copiaProgramada(true)) { toast('Copia guardada en el móvil'); A.copiasConf(); } else toast('No se ha podido guardar la copia'); },
+    async copiaYa() { toast('Haciendo la copia…'); if (await copiaProgramada(true)) { toast(confCopias().drive ? 'Copia guardada en el móvil y en Google Drive' : 'Copia guardada en el móvil'); A.copiasConf(); } else toast('No se ha podido guardar la copia'); },
+    async conectarDrive() {
+      try { await Drive.conectar(true); toast('Conectando con Google Drive…'); const cuenta = await Drive.cuenta();
+        S.ajustes.copias = { ...confCopias(), drive: true, driveCuenta: cuenta, driveError: null, driveUltima: null }; guardar();
+        if (FREC[confCopias().frecuencia] && S.contratos.length) await copiaProgramada(true);
+        toast(confCopias().driveUltima ? 'Conectado. Primera copia subida a Google Drive' : 'Conectado con Google Drive'); A.copiasConf();
+      } catch (e) { toast(e && e.code === 'CANCELADO' ? 'No se ha conectado con Google Drive' : 'No se ha podido conectar con Google Drive. Comprueba la conexión.'); } },
+    desconectarDrive() { confirma('Desconectar Google Drive', 'Las copias dejarán de subirse a Google Drive. Las que ya están allí no se borran.', 'Desconectar', async () => {
+      await Drive.desconectar(); S.ajustes.copias = { ...confCopias(), drive: false, driveCuenta: null }; guardar(); toast('Google Drive desconectado'); A.copiasConf(); }); },
+    async driveCopias() {
+      let l; try { if (!Drive.token) await Drive.conectar(true); toast('Buscando copias en Google Drive…'); l = await Drive.lista(); } catch (e) { return toast(e && e.code === 'CANCELADO' ? 'No se ha conectado con Google Drive' : 'No se ha podido consultar Google Drive'); }
+      const kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+      hoja('Copias en Google Drive', `${l.length ? `<div class="filas">${l.map((x) => `<div class="fila-l"><span><b>${fecha((x.nombre.match(/\d{4}-\d{2}-\d{2}/) || [''])[0])}</b><br><span class="sub">${/\.zip$/.test(x.nombre) ? 'Con documentos y fotos' : 'Solo los datos'}${x.tam ? ' · ' + kb(x.tam) : ''}</span></span><span class="der"><button class="btn peq" data-a="driveRecuperar" data-n="${h(x.id)}" data-f="${h(x.nombre)}">Recuperar</button></span></div>`).join('')}</div>`
+        : '<p class="sub">No hay copias de Mis alquileres en este Google Drive.</p>'}<p class="sub esp">Están en la carpeta «Mis alquileres» de tu Google Drive.</p>`); },
+    driveRecuperar(_, el) { const id = el.dataset.n, n = el.dataset.f; confirma('Recuperar esta copia', 'Los datos actuales se sustituirán por los de la copia del ' + fecha((n.match(/\d{4}-\d{2}-\d{2}/) || [''])[0]) + '.', 'Recuperar', async () => {
+      try { toast('Descargando la copia…'); const c = confCopias(); await recuperarBytes(await Drive.bajar(id), n); S.ajustes.copias = { ...confCopias(), drive: true, driveCuenta: c.driveCuenta || confCopias().driveCuenta }; guardar(); } catch (x) { x && x.code ? fallo(x) : toast('No se ha podido descargar la copia'); } }); },
     enviarCopia(_, el) { Archivos.compartirDeMovil(el.dataset.n).catch(() => toast('No se ha podido enviar')); },
     recuperarCopia(_, el) { const n = el.dataset.n; confirma('Recuperar esta copia', 'Los datos actuales se sustituirán por los de la copia del ' + fecha((n.match(/\d{4}-\d{2}-\d{2}/) || [''])[0]) + '.', 'Recuperar', async () => { try { await recuperarBytes(await Archivos.leerDeMovil(n), n); } catch (x) { fallo(x); } }); },
-    restaurar() { hoja('Recuperar una copia', '<p class="nota">Los datos actuales se sustituirán por los de la copia. Si quieres conservarlos, guarda antes una copia.</p><label class="f">Archivo de copia (.json o .zip)<input type="file" id="fcopia" accept=".json,.zip,application/json,application/zip"></label>', (el) => {
+    restaurar() { hoja('Recuperar una copia', '<p class="nota">Los datos actuales se sustituirán por los de la copia. Si quieres conservarlos, guarda antes una copia.</p><label class="f">Archivo de copia (.json o .zip)<input type="file" id="fcopia" accept=".json,.zip,application/json,application/zip"></label>' + (Drive.disponible ? '<div class="acc"><button class="btn" data-a="driveCopias">Recuperar desde Google Drive</button></div>' : ''), (el) => {
       $('#fcopia', el).onchange = async (e) => { const f = e.target.files[0]; if (!f) return;
         try { await recuperarBytes(new Uint8Array(await f.arrayBuffer()), f.name); } catch (x) { fallo(x); } }; }); },
     csv(_, el) { const t = el.dataset.t; Archivos.compartir(`${t.toLowerCase()}-${HOY}.csv`, MA['csv' + t](S, HOY), 'text/csv').catch(() => toast('No se ha podido exportar')); },

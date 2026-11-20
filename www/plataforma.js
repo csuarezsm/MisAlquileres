@@ -117,6 +117,58 @@
     },
   };
 
+  // ---------- Google Drive (opcional): las copias van a una carpeta «Mis alquileres» del Drive del usuario ----------
+  // Permiso drive.file: la app solo ve los archivos que ella misma crea. Sin servidores intermedios.
+  const NDrive = NATIVO ? (P.Drive || (C.registerPlugin ? C.registerPlugin('Drive') : null)) : null;
+  const GAPI = 'https://www.googleapis.com/drive/v3', GUP = 'https://www.googleapis.com/upload/drive/v3';
+  const Drive = {
+    disponible: !!NDrive,
+    token: null, caduca: 0, idCarpeta: null,
+    async conectar(interactivo) { const r = await NDrive.autorizar({ interactivo: !!interactivo }); this.token = r.token; this.caduca = Date.now() + 45 * 60000; return r.token; },
+    async api(url, op, reintento) {
+      if (!this.token || Date.now() > this.caduca) await this.conectar(false);
+      const o = op || {}, r = await fetch(url, { ...o, headers: { ...(o.headers || {}), Authorization: 'Bearer ' + this.token } });
+      if (r.status === 401 && !reintento) { this.token = null; return this.api(url, op, true); }
+      if (!r.ok) throw Object.assign(new Error('Google Drive ha respondido ' + r.status), { status: r.status });
+      return r;
+    },
+    async cuenta() { return ((await (await this.api(GAPI + '/about?fields=user(emailAddress)')).json()).user || {}).emailAddress || ''; },
+    async carpeta() {
+      if (this.idCarpeta) return this.idCarpeta;
+      const q = encodeURIComponent("name='Mis alquileres' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+      const l = await (await this.api(`${GAPI}/files?q=${q}&fields=files(id)&spaces=drive`)).json();
+      if (l.files && l.files.length) return (this.idCarpeta = l.files[0].id);
+      const c = await (await this.api(GAPI + '/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Mis alquileres', mimeType: 'application/vnd.google-apps.folder' }) })).json();
+      return (this.idCarpeta = c.id);
+    },
+    async lista() {
+      const id = await this.carpeta(), q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+      const l = await (await this.api(`${GAPI}/files?q=${q}&orderBy=name desc&pageSize=100&fields=files(id,name,size)`)).json();
+      return (l.files || []).filter((f) => /^mis-alquileres-\d{4}-\d{2}-\d{2}.*\.(zip|json)$/.test(f.name)).map((f) => ({ id: f.id, nombre: f.name, tam: Number(f.size) || 0 }));
+    },
+    async subir(nombre, bytes, mime, guardar) {
+      const id = await this.carpeta(), meta = JSON.stringify({ name: nombre, parents: [id] });
+      for (const f of (await this.lista()).filter((x) => x.nombre === nombre)) await this.api(`${GAPI}/files/${f.id}`, { method: 'DELETE' });
+      let hecho = false;
+      if (bytes.length > 4 * 1024 * 1024) {
+        const ini = await this.api(GUP + '/files?uploadType=resumable', { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime }, body: meta });
+        const loc = ini.headers.get('Location');
+        if (loc) { const r = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': mime }, body: bytes }); if (!r.ok) throw new Error('Google Drive ha respondido ' + r.status); hecho = true; }
+      }
+      if (!hecho) {
+        const b = 'ma' + Date.now();
+        const cuerpo = new Blob([`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${b}\r\nContent-Type: ${mime}\r\n\r\n`, bytes, `\r\n--${b}--`]);
+        await this.api(GUP + '/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body: cuerpo });
+      }
+      for (const f of (await this.lista()).slice(Math.max(1, guardar || 7))) { try { await this.api(`${GAPI}/files/${f.id}`, { method: 'DELETE' }); } catch (e) { /* se borrará la próxima vez */ } }
+    },
+    async bajar(idArchivo) { return new Uint8Array(await (await this.api(`${GAPI}/files/${idArchivo}?alt=media`)).arrayBuffer()); },
+    async desconectar() {
+      const t = this.token; this.token = null; this.idCarpeta = null;
+      if (t) { try { await fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(t), { method: 'POST' }); } catch (e) { /* sin conexión: el acceso caduca solo */ } }
+    },
+  };
+
   // ---------- Avisos del móvil (notificaciones locales, sin servidor) ----------
   const Avisos = {
     disponible: NATIVO && !!P.LocalNotifications,
@@ -169,7 +221,7 @@
     },
   };
 
-  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos,
+  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive,
     // En la app de Android, navegar al enlace hace que Android lo abra en su app (WhatsApp); en el navegador, pestaña nueva
     abrir(url) { if (NATIVO) window.location.href = url; else window.open(url, '_blank'); },
     alVolver(fn) { document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); }); } };

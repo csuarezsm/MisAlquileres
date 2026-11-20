@@ -61,8 +61,8 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • En español, inglés, alemán, francés e italiano; cada inquilino recibe sus mensajes y recibos en su idioma
 
 🔒 TUS DATOS, EN TU MÓVIL
-• Sin cuentas, sin publicidad y sin enviar nada a servidores
-• Copias de seguridad automáticas (cada día, semana o mes) en el móvil, con los documentos y fotos si quieres, y envío a Drive o al correo
+• Sin cuentas, sin publicidad y sin enviar nada a nuestros servidores
+• Copias de seguridad automáticas (cada día, semana o mes) en el móvil y, si quieres, en tu Google Drive, con los documentos y fotos
 
 Empieza en un minuto con el alta rápida o importa tus inmuebles desde Excel.
 
@@ -92,17 +92,19 @@ Monetizar › Productos › Productos de compra única › Crear:
 | Acceso a la app | Todas las funciones están disponibles sin acceso especial (no hay inicio de sesión) |
 | Clasificación de contenido | Cuestionario: utilidad/productividad, sin contenido sensible |
 | Público objetivo | 18 años o más |
-| Seguridad de los datos · ¿recopila o comparte datos? | **No**. Los datos se guardan solo en el dispositivo y no se transmiten |
+| Seguridad de los datos · ¿recopila o comparte datos? | **No**. Los datos se guardan en el dispositivo. La única salida es la copia que el propio usuario activa hacia **su** Google Drive: va directa del móvil a su cuenta, IT Canarias nunca la recibe, y es una transferencia iniciada por el usuario (exenta de declararse como «compartir»). Se cifra en tránsito (HTTPS). |
 | Eliminación de cuentas | No aplica: la app no permite crear cuentas |
 | Funciones financieras | La app no ofrece funciones financieras (ni préstamos ni servicios de pago) |
 | App de noticias / salud / gobierno | No |
 | ID de publicidad | No lo usa |
 
-Si Play Console formula alguna de estas preguntas de otra manera, el criterio es el mismo: la app no envía datos fuera del dispositivo.
+Si Play Console formula alguna de estas preguntas de otra manera, el criterio es el mismo: IT Canarias no recibe ningún dato; solo salen del móvil cuando el usuario los comparte o activa su propio Google Drive.
 
 ## Permisos que verá Google
 
 - Notificaciones (avisos de cobros y vencimientos; se piden al activarlos)
 - Facturación de Google Play (la compra única)
+- Google Drive, permiso `drive.file` (solo si el usuario activa las copias en Drive; solo ve los archivos que crea la app)
+- Almacenamiento, solo en Android 10 o anterior (para guardar las copias en Documentos)
 - Arranque del dispositivo (para que los avisos programados sigan tras reiniciar)
 - Internet: lo declara la plantilla; la app no hace conexiones propias

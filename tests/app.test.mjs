@@ -160,14 +160,33 @@ try {
     await p.evaluate(() => { const A = window.Plataforma.Archivos; window.__copias = []; A.enMovil = true;
       A.copiaEnMovil = async (n, b, g) => { window.__copias = [{ nombre: n, tam: b.length, b }, ...window.__copias.filter((x) => x.nombre !== n)].slice(0, g); };
       A.copiasEnMovil = async () => window.__copias.map(({ nombre, tam }) => ({ nombre, tam })); window.__ma.pinta(); });
-    await p.goto(URL0 + '#ajustes'); assert.match(await p.locator('[data-a=copiasConf]').innerText(), /Cada día, con documentos y fotos/);
+    await p.goto(URL0 + '#ajustes'); assert.match(await p.locator('[data-a=copiasConf]').innerText(), /Cada día · Con documentos y fotos · Solo en el móvil/);
     await p.locator('[data-a=copiasConf]').click(); await campo(p, 'frecuencia').selectOption('semanal'); await campo(p, 'guardar').selectOption('3'); await guardar(p);
     await p.waitForFunction(() => window.__copias.length === 1); let c = await p.evaluate(() => ({ n: window.__copias[0].nombre, a: window.__ma.S.ajustes.copias }));
     assert.match(c.n, /^mis-alquileres-\d{4}-\d{2}-\d{2}-completa\.zip$/); assert.equal(c.a.frecuencia, 'semanal'); assert.equal(c.a.guardar, 3); assert.ok(c.a.ultima);
     await p.evaluate(() => { window.__copias = []; window.__ma.S.ajustes.copias.ultima = window.MA.masDias(window.__ma.S.ajustes.copias.ultima, -8); document.dispatchEvent(new Event('visibilitychange')); });
     await p.waitForFunction(() => window.__copias.length === 1); await p.locator('#toast').waitFor({ state: 'detached' }).catch(() => {});
     await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=recuperarCopia]').first().waitFor(); await foto(p, '10-copias'); await p.keyboard.press('Escape');
-    await p.evaluate(() => { window.Plataforma.Archivos.enMovil = false; });
+  });
+  await paso('Google Drive: conectar, subir la copia, ver la lista y recuperar', async () => {
+    await p.evaluate(() => { const D = window.Plataforma.Drive; window.__drive = []; D.disponible = true;
+      D.conectar = async (i) => { if (!i && !D.token) throw Object.assign(new Error('permiso'), { code: 'PERMISO' }); D.token = 't'; return 't'; };
+      D.cuenta = async () => 'carlos@ejemplo.com';
+      D.subir = async (n, b, m, g) => { window.__drive = [{ id: 'id-' + n, nombre: n, tam: b.length, b }, ...window.__drive.filter((x) => x.nombre !== n)].slice(0, g); };
+      D.lista = async () => window.__drive.map(({ id, nombre, tam }) => ({ id, nombre, tam }));
+      D.bajar = async (id) => window.__drive.find((x) => x.id === id).b; D.desconectar = async () => { D.token = null; };
+      window.__ma.pinta(); });
+    await p.goto(URL0 + '#ajustes'); await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=conectarDrive]').click();
+    await p.waitForFunction(() => window.__drive.length === 1); let s = await S(p);
+    assert.equal(s.ajustes.copias.drive, true); assert.equal(s.ajustes.copias.driveCuenta, 'carlos@ejemplo.com'); assert.ok(s.ajustes.copias.driveUltima);
+    await p.locator('#hoja').getByText('carlos@ejemplo.com').waitFor(); await foto(p, '11-drive');
+    const antes = s.pagos.length; await p.evaluate(() => { window.__ma.S.pagos.push({ id: 99999, cargoId: 1, importe: 1, fecha: '2020-01-01' }); });
+    await p.locator('#hoja [data-a=driveCopias]').click(); await p.locator('#hoja [data-a=driveRecuperar]').first().click(); await p.locator('#hoja [data-x=si]').click();
+    await p.locator('#toast').getByText(/Copia recuperada/).waitFor(); s = await S(p); assert.equal(s.pagos.length, antes, 'vuelven los datos de la copia de Drive'); assert.equal(s.ajustes.copias.drive, true);
+    await p.goto(URL0 + '#ajustes'); assert.match(await p.locator('[data-a=copiasConf]').innerText(), /Móvil y Google Drive/);
+    await p.locator('[data-a=copiasConf]').click(); await p.locator('#hoja [data-a=desconectarDrive]').click(); await p.locator('#hoja [data-x=si]').click();
+    await p.waitForFunction(() => !window.__ma.S.ajustes.copias.drive); await p.keyboard.press('Escape');
+    await p.evaluate(() => { window.Plataforma.Drive.disponible = false; window.Plataforma.Archivos.enMovil = false; window.__ma.pinta(); });
   });
   await paso('apariencia: color y tamaño de letra se aplican y se guardan', async () => {
     await p.goto(URL0 + '#apariencia'); await p.locator('[data-a=ap][data-k=acento][data-v="#2c62c6"]').click(); await p.locator('[data-a=ap][data-k=fs][data-v="1.15"]').click();
