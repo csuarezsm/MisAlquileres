@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.0.1';
   const { Almacen, Archivos, Avisos, Tienda, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -109,9 +109,10 @@
   function enviar(titulo, tel, texto, alEnviar) {
     hoja(titulo, `<label class="f">Mensaje<textarea id="msj" rows="8">${h(texto)}</textarea></label>
       <div class="acc"><button class="btn pri" data-x="wa">${tel ? 'Abrir WhatsApp' : 'Compartir'}</button><button class="btn" data-x="copiar">Copiar</button></div>
-      <p class="sub">${tel ? 'Se abre WhatsApp con el texto preparado; lo envías tú.' : 'Este inquilino no tiene teléfono guardado.'}</p>`, (el) => {
+      <p class="sub">${tel ? 'Se abre WhatsApp con el texto preparado; lo envías tú.' : 'Este inquilino no tiene teléfono guardado: elige WhatsApp y el contacto al compartir, o añade su teléfono en su ficha.'}</p>`, (el) => {
       $('[data-x=wa]', el).onclick = () => { const t = $('#msj', el).value; if (alEnviar) alEnviar(); cerrar();
-        if (tel) window.Plataforma.abrir(`https://wa.me/${telWa(tel)}?text=${encodeURIComponent(t)}`); else Archivos.compartir('mensaje.txt', t); };
+        if (tel) window.Plataforma.abrir(`https://wa.me/${telWa(tel)}?text=${encodeURIComponent(t)}`);
+        else Archivos.compartirTexto(t).then((r) => { if (r === 'copiado') toast('Mensaje copiado: pégalo en WhatsApp'); }).catch(() => {}); };
       $('[data-x=copiar]', el).onclick = async () => { try { await navigator.clipboard.writeText($('#msj', el).value); toast('Mensaje copiado'); } catch (e) { toast('No se ha podido copiar'); } };
     });
   }
