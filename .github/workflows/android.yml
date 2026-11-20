@@ -32,22 +32,27 @@ jobs:
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          test -n "$KS" || { echo "Falta el secreto ANDROID_KEYSTORE_BASE64"; exit 1; }
+          if [ -z "$KS" ]; then
+            echo "::warning::Falta el secreto ANDROID_KEYSTORE_BASE64: se compila sin firmar y no se publica nada"
+            echo "FIRMADA=no" >> $GITHUB_ENV; exit 0
+          fi
           echo "$KS" | base64 -d > "$RUNNER_TEMP/misalquileres.jks"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/misalquileres.jks" >> $GITHUB_ENV
+          echo "FIRMADA=si" >> $GITHUB_ENV
       - name: Compilar AAB (Google Play) y APK (prueba directa)
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           cd android && chmod +x gradlew && ./gradlew --no-daemon bundleRelease assembleRelease
           cp app/build/outputs/bundle/release/app-release.aab ../mis-alquileres-play.aab
-          cp app/build/outputs/apk/release/app-release.apk ../mis-alquileres.apk
+          cp app/build/outputs/apk/release/app-release*.apk ../mis-alquileres.apk
       - uses: actions/upload-artifact@v4
         with:
           name: mis-alquileres-${{ env.VERSION }}
           path: mis-alquileres*.a*
       - name: Publicar la Release (si la versión es nueva)
         id: release
+        if: env.FIRMADA == 'si'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
