@@ -35,6 +35,8 @@
       return p.destino.replace(/\{([efnmx]\d?)\}/g, (z, t) => (vals[t] != null ? vals[t] : z));
     }
     if (s.includes(' · ')) return s.split(' · ').map((x) => trad(x, l)).join(' · ');
+    if (/^· ./.test(s)) return '· ' + trad(s.slice(2), l);
+    if (/. ·$/.test(s)) return trad(s.slice(0, -2), l) + ' ·';
     if (/^[\d\s.,€%+\-–:/()]*$/.test(s)) return s;
     if (MESES_ES.includes(s)) return d[s] || s;
     const mm = new RegExp('^(' + RE.m + ')$').exec(s); if (mm) return mesL(s, l);

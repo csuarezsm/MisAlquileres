@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -124,6 +124,18 @@
   }
   // Informe de la Renta del año elegido: de todo (tu parte) o de otro titular
   const informe = () => MA.informeTitular(MA.informeRenta(S, V.renta, HOY), S, V.titular || (MA.titulares(S).length > 1 ? 'yo' : null));
+  // Datos del contrato para el modelo que se firma
+  function datosContrato(ct, p, q, o) {
+    const ts = MA.partes(p), arr = ts.map((x) => (x.yo ? { nombre: S.ajustes.propietario || '', dni: S.ajustes.dni || '', domicilio: S.ajustes.domicilio || '', pct: x.pct } : { nombre: x.nombre, dni: x.nif || '', domicilio: '', pct: x.pct }));
+    const renta = MA.rentaActual(ct, ct.inicio > HOY ? ct.inicio : HOY), paso = (c) => MA.PERIODICIDADES[c.periodicidad] || 12;
+    const gastos = S.conceptos.filter((c) => c.inmuebleId === p.id && c.activo && c.responsable === 'repercute' && !c.hipoteca)
+      .map((c) => ({ concepto: c.concepto, importe: c.importe ? Math.round(c.importe * (12 / paso(c)) * (c.porcentaje == null ? 100 : c.porcentaje) / 100) : 0 }));
+    return { tipo: o.tipo, lugar: o.lugar, fecha: o.fecha, arrendadores: arr, arrendatario: { nombre: q.nombre || '', dni: q.dni || '', domicilio: q.domicilio || '' },
+      inmueble: { nombre: p.nombre, direccion: p.direccion || '', referencia: p.referencia || '', superficie: p.superficie || null, descripcion: p.descripcion || '' },
+      inicio: ct.inicio, fin: ct.fin, anios: Number(o.anios) || 1, renta, rentaLetras: MA.eurosLetras(renta), diaPago: ct.diaCobro, formaPago: S.ajustes.formaPago || '', fianza: ct.fianza || 0, fianzaLetras: ct.fianza ? MA.eurosLetras(ct.fianza) : '',
+      garantia: o.garantia || 0, actualizacion: ct.actualizacion || 'ipc', actualizacionPct: ct.actualizacionPct, gastos, impuesto: ct.impuesto && ct.impuesto !== 'ninguno' ? { nombre: MA.IMPUESTOS[ct.impuesto].nombre, pct: ct.impuestoPct != null ? ct.impuestoPct : MA.IMPUESTOS[ct.impuesto].pct } : null,
+      retencion: !!ct.retencion, amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
+  }
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
 
   // ---------- Avisos en pantalla ----------
@@ -144,6 +156,7 @@
   function hoja(titulo, cuerpo, alMontar) {
     const el = $('#hoja');
     if (el.hidden) focoPrevio = document.activeElement;
+    el.onclick = null; actaAbierta = null;
     el.innerHTML = `<button class="cerrar" data-a="cerrar" aria-label="Cerrar">✕</button><h2 id="hoja-t">${h(titulo)}</h2>${cuerpo}`;
     el.hidden = false; $('#fondo').hidden = false; el.scrollTop = 0;
     if (alMontar) alMontar(el);
@@ -591,6 +604,8 @@
         ${dep.fecha ? `<p class="sub">Depositada en ${h(dep.organismo)} el ${fecha(dep.fecha)}${dep.referencia ? ` (ref. ${h(dep.referencia)})` : ''}${dep.recuperado ? `. Recuperada el ${fecha(dep.recuperado)}` : ''}.</p>${!activo && !dep.recuperado ? `<div class="acc"><button class="btn peq" data-a="recuperarDeposito" data-id="${i}">Ya la he recuperado del organismo</button></div>` : ''}`
           : !dep.noAplica && saldo > 0 ? `<p class="nota">Fianza sin depositar. En Canarias se deposita en el Instituto Canario de la Vivienda en el mes siguiente a la firma.</p><div class="acc"><button class="btn peq" data-a="deposito" data-id="${i}">Registrar el depósito</button><button class="btn txt peq" data-a="depositoNoAplica" data-id="${i}">No hay que depositarla</button></div>` : ''}
         <div class="acc">${!saldo ? `<button class="btn peq" data-a="fianza" data-id="${i}" data-t="recibida">Apuntar fianza recibida</button>` : `<button class="btn peq" data-a="fianza" data-id="${i}" data-t="devuelta">Devolver</button><button class="btn peq" data-a="fianza" data-id="${i}" data-t="retenida">Retener una parte</button>`}</div>` : ''}
+      <h3>Para firmar</h3><div class="acc"><button class="btn peq" data-a="docContrato" data-id="${i}">Contrato</button><button class="btn peq" data-a="actaNueva" data-id="${i}" data-t="entrada">Acta de entrada</button><button class="btn peq" data-a="actaNueva" data-id="${i}" data-t="salida">Acta de salida</button></div>
+      ${(S.actas || []).filter((x) => x.contratoId === i).length ? `<div class="filas">${S.actas.filter((x) => x.contratoId === i).map((x) => `<button class="fila-l" data-a="acta" data-id="${x.id}"><span><b>${h(Idioma.t(x.tipo === 'salida' ? 'Acta de salida' : 'Acta de entrada'))}</b><br><span class="sub">${fecha(x.fecha)}${x.firmas && x.firmas.arrendatario ? ' · ' + h(Idioma.t('Firmada')) : ''}</span></span>${svg('chev')}</button>`).join('')}</div>` : ''}
       ${docsHtml('contrato', i)}
       <details class="mas-op"><summary>Más acciones</summary><div class="acc">${activo ? `<button class="btn peq" data-a="revisar" data-id="${i}">Cambiar la renta</button><button class="btn peq" data-a="renovar" data-id="${i}">Renovar</button><button class="btn peq" data-a="editarContrato" data-id="${i}">Editar</button>` : `<button class="btn peq" data-a="renovar" data-id="${i}">Reactivar y renovar</button>`}
         ${ct.fin && activo ? `<button class="btn peq" data-a="avisoFin" data-id="${i}">Avisar del vencimiento</button>` : ''}${!conFianza ? `<button class="btn peq" data-a="fianza" data-id="${i}" data-t="recibida">Apuntar fianza</button>` : ''}
@@ -646,6 +661,73 @@
     });
   }
 
+  // ---------- Actas de entrega (entrada y salida) con estancias, fotos, contadores y firmas ----------
+  let actaAbierta = null;
+  const deDataUrl = (u) => { const s = atob(String(u).split(',')[1] || ''), b = new Uint8Array(s.length); for (let k = 0; k < s.length; k++) b[k] = s.charCodeAt(k); return b; };
+  function fichaActa(id) {
+    const a = por(S.actas, id); if (!a) return cerrar();
+    const ct = por(S.contratos, a.contratoId) || {}, p = por(S.inmuebles, ct.inmuebleId) || {}, q = por(S.inquilinos, ct.inquilinoId) || {};
+    const fotos = (k) => MA.adjuntosDe(S, 'acta', id).filter((x) => x.estancia === k);
+    const est = a.estancias.map((e, k) => `<div class="tar esp" data-est="${k}"><label class="f">Estancia<input name="en${k}" value="${h(e.nombre)}"></label>
+        <div class="segm" role="group">${Object.entries(Documentos.ESTADOS).map(([c, nom]) => `<button type="button" data-estado="${k}:${c}" aria-pressed="${e.estado === c}">${h(nom)}</button>`).join('')}</div>
+        <label class="f esp">Notas<textarea name="eo${k}" rows="2" placeholder="${h(Idioma.t('Paredes, suelo, ventanas, enchufes, electrodomésticos…'))}">${h(e.notas || '')}</textarea></label>
+        <div class="docs">${fotos(k).map((x) => `<button type="button" class="doc" data-a="verDoc" data-id="${x.id}"><img alt="" data-arch="${h(x.archivo)}"></button>`).join('')}</div>
+        <div class="acc"><label class="btn peq">${svg('mas')} Foto<input type="file" accept="image/*" capture="environment" data-adjuntar="acta:${id}:${k}" hidden></label><button type="button" class="btn txt peq" data-quitar-est="${k}">Quitar estancia</button></div></div>`).join('');
+    const firma = (k, et) => `<div class="tar esp"><div class="tit">${h(Idioma.t(et))}</div>${a.firmas[k] ? `<img class="firma" alt="" src="${a.firmas[k]}">` : `<canvas class="firma" data-firma="${k}" width="600" height="200" aria-label="${h(Idioma.t('Firma aquí con el dedo'))}"></canvas><p class="sub">${h(Idioma.t('Firma aquí con el dedo'))}</p>`}
+      <div class="acc"><button type="button" class="btn txt peq" data-borrar-firma="${k}">${h(Idioma.t(a.firmas[k] ? 'Firmar de nuevo' : 'Borrar'))}</button></div></div>`;
+    hoja(Idioma.t(a.tipo === 'salida' ? 'Acta de salida' : 'Acta de entrada'), `<p class="sub"><span data-notr>${h(p.nombre)} · ${h(q.nombre)}</span></p>
+      <form id="facta" novalidate><label class="f">Fecha<input type="date" name="fecha" value="${a.fecha}"></label>
+      <div class="form-sec">Estancias y estado</div>${est}<div class="acc"><button type="button" class="btn peq" data-x="masEst">${svg('mas')} Añadir estancia</button></div>
+      <div class="form-sec">Contadores</div><div class="dos"><label class="f">Luz<input name="cluz" inputmode="decimal" value="${h(a.contadores.luz || '')}"></label><label class="f">Agua<input name="cagua" inputmode="decimal" value="${h(a.contadores.agua || '')}"></label></div>
+      <label class="f">Gas<input name="cgas" inputmode="decimal" value="${h(a.contadores.gas || '')}"></label>
+      <label class="f">Llaves y mandos<textarea name="llaves" rows="2" placeholder="${h(Idioma.t('Por ejemplo: 2 llaves del portal, 2 de la vivienda, 1 mando del garaje'))}">${h(a.llaves || '')}</textarea></label>
+      <label class="f">Observaciones<textarea name="obs" rows="3">${h(a.observaciones || '')}</textarea></label>
+      <div class="form-sec">Firmas</div>${firma('arrendador', 'Arrendador')}${firma('arrendatario', 'Inquilino')}
+      <button class="btn pri ancho esp" type="submit">Guardar el acta</button></form>
+      <div class="acc esp"><button class="btn" data-x="pdf">PDF para enviar</button><button class="btn txt rojo" data-x="borrar">Eliminar el acta</button></div>`, (el) => {
+      const f = $('#facta', el), sucias = {};
+      for (const img of el.querySelectorAll('img[data-arch]')) Adjuntos.url(img.dataset.arch).then((u) => { if (u) img.src = u; }).catch(() => {});
+      // Firmas con el dedo
+      for (const cv of el.querySelectorAll('canvas[data-firma]')) {
+        const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.lineWidth = 3.2; cx.lineCap = 'round'; cx.lineJoin = 'round'; cx.strokeStyle = '#14191c';
+        let dib = false; const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+        cv.onpointerdown = (e) => { dib = true; cv.setPointerCapture(e.pointerId); const [x, y] = pos(e); cx.beginPath(); cx.moveTo(x, y); e.preventDefault(); };
+        cv.onpointermove = (e) => { if (!dib) return; const [x, y] = pos(e); cx.lineTo(x, y); cx.stroke(); sucias[cv.dataset.firma] = cv; e.preventDefault(); };
+        cv.onpointerup = cv.onpointercancel = () => { dib = false; };
+      }
+      const leerForm = () => {
+        a.fecha = f.elements.fecha.value || a.fecha;
+        a.estancias.forEach((e, k) => { if (f.elements['en' + k]) { e.nombre = f.elements['en' + k].value; e.notas = f.elements['eo' + k].value; } });
+        a.contadores = { luz: f.elements.cluz.value, agua: f.elements.cagua.value, gas: f.elements.cgas.value }; a.llaves = f.elements.llaves.value; a.observaciones = f.elements.obs.value;
+        for (const [k, cv] of Object.entries(sucias)) a.firmas[k] = cv.toDataURL('image/jpeg', 0.85);
+        guardar();
+      };
+      actaAbierta = leerForm;
+      el.onclick = (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.estado) { const [k, c] = b.dataset.estado.split(':'); a.estancias[+k].estado = c; b.parentNode.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }
+        else if (b.dataset.x === 'masEst') { leerForm(); a.estancias.push({ nombre: '', estado: 'bien', notas: '' }); fichaActa(id); }
+        else if (b.dataset.quitarEst != null) { leerForm(); const k = +b.dataset.quitarEst; a.estancias.splice(k, 1);
+          for (const x of MA.adjuntosDe(S, 'acta', id)) if (x.estancia === k) x.estancia = -1; else if (x.estancia > k) x.estancia--; guardar(); fichaActa(id); }
+        else if (b.dataset.borrarFirma) { leerForm(); a.firmas[b.dataset.borrarFirma] = null; guardar(); fichaActa(id); }
+        else if (b.dataset.x === 'pdf') { leerForm(); pdfActa(id); }
+        else if (b.dataset.x === 'borrar') confirma('Eliminar el acta', 'Se borrarán el acta, sus fotos y sus firmas.', 'Eliminar', () => { for (const x of MA.adjuntosDe(S, 'acta', id)) { MA.quitarAdjunto(S, x.id); Adjuntos.borrar(x.archivo); } S.actas = S.actas.filter((x) => x.id !== id); guardar(); fichaContrato(a.contratoId); });
+      };
+      f.onsubmit = (e) => { e.preventDefault(); leerForm(); toast('Acta guardada'); fichaContrato(a.contratoId); };
+    });
+  }
+  async function pdfActa(id) {
+    const a = por(S.actas, id), ct = por(S.contratos, a.contratoId) || {}, p = por(S.inmuebles, ct.inmuebleId) || {}, q = por(S.inquilinos, ct.inquilinoId) || {};
+    try {
+      toast('Preparando el archivo…');
+      const estancias = [];
+      for (const [k, e] of a.estancias.entries()) { const fotos = []; for (const x of MA.adjuntosDe(S, 'acta', id).filter((y) => y.estancia === k).reverse()) { try { const b = await Adjuntos.leer(x.archivo); if (b) fotos.push(b); } catch (err) { /* ya no está */ } } estancias.push({ ...e, fotos }); }
+      const datos = { tipo: a.tipo, fecha: a.fecha, inmueble: p.nombre, direccion: p.direccion, arrendador: S.ajustes.propietario, arrendatario: q.nombre, estancias, contadores: a.contadores, llaves: a.llaves, observaciones: a.observaciones,
+        firmas: { arrendador: a.firmas.arrendador ? deDataUrl(a.firmas.arrendador) : null, arrendatario: a.firmas.arrendatario ? deDataUrl(a.firmas.arrendatario) : null } };
+      await Archivos.compartirBytes(`acta-${a.tipo}-${a.fecha}.pdf`, Documentos.pdfActa(datos, { t: Idioma.t, acento: leerAp().acento }), 'application/pdf');
+    } catch (e) { toast('No se ha podido crear el PDF'); }
+  }
+
   // ---------- Documentos y fotos ----------
   const docsHtml = (tipo, id) => `<h3>Documentos y fotos</h3><div class="docs" data-docs="${tipo}:${id}"></div>
     <div class="acc"><label class="btn peq">+ Añadir foto o documento<input type="file" accept="image/*,application/pdf" data-adjuntar="${tipo}:${id}" hidden></label></div>`;
@@ -655,13 +737,13 @@
       : '<p class="sub">Contrato firmado, DNI, facturas, fotos del estado al entrar y al salir…</p>';
     for (const img of el.querySelectorAll('img[data-arch]')) Adjuntos.url(img.dataset.arch).then((u) => { if (u) img.src = u; }).catch(() => {});
   }
-  function abrirPadre(tipo, id) { ({ inmueble: fichaInmueble, contrato: fichaContrato, gasto: fichaGasto, inquilino: (x) => formInquilino(por(S.inquilinos, x)) })[tipo](id); }
+  function abrirPadre(tipo, id) { ({ inmueble: fichaInmueble, contrato: fichaContrato, gasto: fichaGasto, acta: fichaActa, inquilino: (x) => formInquilino(por(S.inquilinos, x)) })[tipo](id); }
   document.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.titular != null) { V.titular = e.target.value || undefined; pinta(); return; } const f = e.target.dataset && e.target.dataset.filtro; if (!f) return; const v = e.target.value; V.filtros[f] = !v ? undefined : /Id$/.test(f) ? Number(v) : v; });
   document.addEventListener('change', async (e) => {
     const inp = e.target; if (!inp.dataset || !inp.dataset.adjuntar || !inp.files[0]) return;
-    const [tipo, id] = inp.dataset.adjuntar.split(':'), f = inp.files[0];
+    const [tipo, id, est] = inp.dataset.adjuntar.split(':'), f = inp.files[0];
     toast('Guardando…');
-    try { const g = await Adjuntos.guardar(f); MA.agregarAdjunto(S, { tipo, id: +id, ...g }, HOY); guardar(); abrirPadre(tipo, +id); toast('Documento guardado'); }
+    try { if (tipo === 'acta' && actaAbierta) actaAbierta(); const g = await Adjuntos.guardar(f); MA.agregarAdjunto(S, { tipo, id: +id, ...g, estancia: est == null ? undefined : +est }, HOY); guardar(); abrirPadre(tipo, +id); toast('Documento guardado'); }
     catch (x) { toast(x.code ? x.message : 'No se ha podido guardar el archivo'); }
   });
 
@@ -880,9 +962,9 @@
       const q = por(S.inquilinos, id), l = langDe(q), e = Exportar.extractoInquilino(S, id, i ? {} : V.filtros, HOY);
       Archivos.compartirBytes(`${Idioma.tr(l)('extracto')}-${q.nombre.toLowerCase().replace(/\s+/g, '-')}-${HOY}.pdf`, PDF.extracto(e, { t: Idioma.tr(l), acento: leerAp().acento, propietario: S.ajustes.propietario, formaPago: S.ajustes.formaPago }), 'application/pdf').catch(() => toast('No se ha podido crear el extracto')); },
     async zipDocs() { if (!S.adjuntos.length) return toast('No hay documentos ni fotos');
-      toast('Preparando el archivo…'); const nom = { inmueble: (x) => (por(S.inmuebles, x) || {}).nombre, contrato: (x) => { const c = por(S.contratos, x) || {}; return `${(por(S.inquilinos, c.inquilinoId) || {}).nombre} - ${(por(S.inmuebles, c.inmuebleId) || {}).nombre}`; }, gasto: (x) => (por(S.gastos, x) || {}).concepto, inquilino: (x) => (por(S.inquilinos, x) || {}).nombre };
+      toast('Preparando el archivo…'); const nom = { acta: (x) => { const a = por(S.actas, x) || {}, c = por(S.contratos, a.contratoId) || {}; return `${a.tipo || ''} ${a.fecha || ''} - ${(por(S.inmuebles, c.inmuebleId) || {}).nombre || ''}`; }, inmueble: (x) => (por(S.inmuebles, x) || {}).nombre, contrato: (x) => { const c = por(S.contratos, x) || {}; return `${(por(S.inquilinos, c.inquilinoId) || {}).nombre} - ${(por(S.inmuebles, c.inmuebleId) || {}).nombre}`; }, gasto: (x) => (por(S.gastos, x) || {}).concepto, inquilino: (x) => (por(S.inquilinos, x) || {}).nombre };
       const limpio = (s) => String(s || 'sin nombre').replace(/[\\/:*?"<>|]/g, ' ').trim(), usados = {}, arch = [];
-      for (const a of S.adjuntos) { try { const b = await Adjuntos.leer(a.archivo); if (!b) continue; let n = `${Idioma.t({ inmueble: 'Inmuebles', contrato: 'Contratos', gasto: 'Gastos', inquilino: 'Inquilinos' }[a.tipo])}/${limpio(nom[a.tipo](a.refId))}/${limpio(a.nombre)}`;
+      for (const a of S.adjuntos) { try { const b = await Adjuntos.leer(a.archivo); if (!b) continue; let n = `${Idioma.t({ inmueble: 'Inmuebles', contrato: 'Contratos', gasto: 'Gastos', inquilino: 'Inquilinos', acta: 'Actas' }[a.tipo])}/${limpio(nom[a.tipo](a.refId))}/${limpio(a.nombre)}`;
         if (usados[n]) n = n.replace(/(\.\w+)?$/, ` (${++usados[n]})$1`); else usados[n] = 1; arch.push({ nombre: n, datos: b }); } catch (e) { /* ese archivo ya no está */ } }
       Archivos.compartirBytes(`documentos-${HOY}.zip`, Exportar.zip(arch), 'application/zip').catch(() => toast('No se ha podido crear el ZIP')); },
     // 1. Recibo en PDF
@@ -890,6 +972,29 @@
       r.mes = Idioma.mes(r.mes, l); if (l !== 'es') r.letras = '';
       Archivos.compartirBytes(`${Idioma.tr(l)('recibo')}-${r.numero}.pdf`, PDF.recibo(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
         .catch(() => toast('No se ha enviado el recibo')); if (!S.ajustes.dni && !S.ajustes.propietario) toast('Pon tu nombre y DNI en Ajustes › Mis datos para que salgan en el recibo'); } catch (e) { fallo(e); } },
+    acta: fichaActa,
+    actaNueva(i, el) { const ct = por(S.contratos, i), p = por(S.inmuebles, ct.inmuebleId) || {}, tipo = el.dataset.t === 'salida' ? 'salida' : 'entrada';
+      const previa = tipo === 'salida' ? S.actas.filter((x) => x.contratoId === i && x.tipo === 'entrada').pop() : null;
+      const a = { id: ++S.seq, contratoId: i, tipo, fecha: tipo === 'entrada' && ct.inicio > HOY ? ct.inicio : HOY, estancias: (previa ? previa.estancias.map((e) => e.nombre) : Documentos.estanciasDe(p.tipo)).map((n) => ({ nombre: Idioma.t(n), estado: 'bien', notas: '' })),
+        contadores: {}, llaves: previa ? previa.llaves : '', observaciones: '', firmas: { arrendador: null, arrendatario: null } };
+      S.actas.push(a); guardar(); fichaActa(a.id); },
+    docContrato(i) { const ct = por(S.contratos, i), p = por(S.inmuebles, ct.inmuebleId) || {}, q = por(S.inquilinos, ct.inquilinoId) || {}, o = ct.docOpciones || {};
+      const tipo = o.tipo || Documentos.tipoDe(p.tipo, p.porUnidades);
+      formulario({ titulo: 'Contrato para firmar', boton: 'Crear el contrato', valores: { tipo, lugar: o.lugar || S.ajustes.lugarFirma || '', fecha: ct.firma || (ct.inicio > HOY ? HOY : ct.inicio), anios: o.anios || (tipo === 'vivienda' ? 1 : 1),
+        amueblado: !!o.amueblado, mascotas: !!o.mascotas, garantia: o.garantia || null, actividad: ct.actividad || o.actividad || '', vehiculo: ct.vehiculo || o.vehiculo || '', suministrosIncluidos: !!o.suministrosIncluidos, preaviso: o.preaviso || 30, adicionales: o.adicionales || '', formato: o.formato || 'pdf' },
+        defs: [{ html: '<p class="nota">Modelo orientativo basado en la Ley de Arrendamientos Urbanos y el Código Civil. Revísalo y adáptalo antes de firmar; ante cualquier duda, consulta a un profesional.</p>' },
+          { k: 'tipo', e: 'Tipo de contrato', t: 'select', op: Object.entries(Documentos.TIPOS) }, { html: '<div class="dos">' }, { k: 'lugar', e: 'Lugar de la firma' }, { k: 'fecha', e: 'Fecha de la firma', t: 'date' }, { html: '</div>' },
+          ...(ct.fin ? [] : [{ k: 'anios', e: 'Duración pactada (años)', t: 'num' }]),
+          { k: 'amueblado', t: 'check', e: 'Se alquila amueblado (añade un inventario)' }, { k: 'mascotas', t: 'check', e: 'Se permiten animales de compañía' },
+          { k: 'garantia', e: 'Garantía adicional además de la fianza (opcional)', t: 'dinero' }, { k: 'actividad', e: 'Actividad (solo locales)' }, { k: 'vehiculo', e: 'Vehículo: marca, modelo y matrícula (solo garajes)' },
+          { k: 'suministrosIncluidos', t: 'check', e: 'Suministros incluidos en la renta (solo habitaciones)' }, { k: 'preaviso', e: 'Días de preaviso para dejarlo (habitaciones, garajes, trasteros, locales)', t: 'num' },
+          { k: 'adicionales', e: 'Otros pactos (uno por línea)', t: 'area' }, { k: 'formato', e: 'Formato', t: 'select', op: [['pdf', 'PDF'], ['docx', 'Word (.docx), para editarlo']] }],
+        alGuardar: (d) => { const { formato } = d; ct.docOpciones = { ...d }; if (d.actividad) ct.actividad = d.actividad; if (d.vehiculo) ct.vehiculo = d.vehiculo; if (d.lugar) S.ajustes.lugarFirma = d.lugar;
+          const doc = Documentos.contrato(datosContrato(ct, p, q, d)), nombre = `contrato-${(q.nombre || 'inquilino').toLowerCase().replace(/\s+/g, '-')}`;
+          (formato === 'docx' ? Archivos.compartirBytes(nombre + '.docx', Documentos.docx(doc, Exportar.zip), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+            : Archivos.compartirBytes(nombre + '.pdf', Documentos.pdfContrato(doc, { acento: leerAp().acento }), 'application/pdf')).catch(() => toast('No se ha podido crear el contrato'));
+          if (!S.ajustes.dni || !q.dni) toast(!S.ajustes.dni ? 'Pon tu DNI en Ajustes › Mis datos para que salga en el contrato' : 'Falta el DNI del inquilino: añádelo en su ficha'); },
+        despues: () => fichaContrato(i) }); },
     facturaPdf(i) { try { const r = MA.datosFactura(S, i, HOY); guardar(); const c = MA.cargos(S, HOY, (x) => x.id === i)[0], q = por(S.inquilinos, c.inquilinoId), l = langDe(q);
       r.mes = Idioma.mes(r.mes, l);
       Archivos.compartirBytes(`${Idioma.tr(l)('factura')}-${r.numero}.pdf`, PDF.factura(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
@@ -984,6 +1089,7 @@
     <h3>Renta</h3><p>Más › Informe para la Renta resume por inmueble los ingresos, los gastos deducibles, la amortización y la reducción. Para la amortización y la imputación de días vacíos necesita el valor catastral (está en el recibo del IBI). Es orientativo: revísalo antes de presentar.</p>
     <h3>Subida anual y fianza</h3><p>La app te avisa cuando toca actualizar la renta (IRAV o IPC, según el contrato), cuando hay que depositar la fianza y cuando hay que devolverla tras la entrega de llaves.</p>
     <h3>Tus datos</h3><p>Están solo en este dispositivo. La app hace copias automáticas en el móvil (Más › Ajustes y copias › Copias automáticas), con los documentos y fotos si lo eliges. De vez en cuando, envía una a Drive o a tu correo por si pierdes el móvil.</p>
+    <h3>Contratos y actas</h3><p>En la ficha de cada contrato, «Para firmar» crea el contrato con tus datos (PDF o Word) y las actas de entrada y salida con fotos, contadores, llaves y firmas.</p>
     <h3>Varios titulares</h3><p>Si un inmueble es de varias personas, indica la parte de cada una en sus datos catastrales y de compra. El informe de la Renta se puede sacar por titular.</p>
     <h3>Habitaciones</h3><p>Si un inmueble se alquila por habitaciones, los gastos que cobras a los inquilinos (luz, agua, internet…) se reparten a partes iguales entre los que haya ese mes, y cada uno paga su parte.</p>
     <h3>Bloqueo</h3><p>En Más › Ajustes y copias puedes pedir la huella o el PIN del móvil al abrir la app.</p>

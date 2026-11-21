@@ -340,11 +340,12 @@
   }
 
   // ---------- 7. Documentos y fotos ----------
-  const REFS = { inmueble: 'inmuebles', contrato: 'contratos', gasto: 'gastos', inquilino: 'inquilinos' };
+  const REFS = { inmueble: 'inmuebles', contrato: 'contratos', gasto: 'gastos', inquilino: 'inquilinos', acta: 'actas' };
   function agregarAdjunto(s, { tipo, id: refId, nombre, mime, tam, archivo, nota }, hoy) {
     hoyOk(hoy); if (!REFS[tipo]) throw err('DATOS', 'Destino no válido'); exige(s[REFS[tipo]], refId, 'Elemento');
     if (!archivo) throw err('DATOS', 'Falta el archivo');
     const a = { id: ++s.seq, tipo, refId, nombre: texto(nombre) || 'documento', mime: texto(mime), tam: Number(tam) || 0, archivo, nota: texto(nota), fecha: hoy };
+    if (arguments[1].estancia != null) a.estancia = Number(arguments[1].estancia);
     s.adjuntos.push(a); return a;
   }
   function quitarAdjunto(s, i) { const a = exige(s.adjuntos, i, 'Documento'); s.adjuntos = s.adjuntos.filter((x) => x.id !== i); return a.archivo; }

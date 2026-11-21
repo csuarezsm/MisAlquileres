@@ -17,6 +17,8 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • Inquilinos con su teléfono para avisarles por WhatsApp
 
 ✍️ CONTRATOS
+• Modelo de contrato listo para firmar (vivienda, habitación, garaje, trastero o local), en PDF o Word, con tus datos ya puestos
+• Acta de entrada y de salida con fotos por estancia, contadores, llaves y firma con el dedo
 • Fechas, renta, día de cobro y fianza (recibida, devuelta o retenida)
 • Subidas de renta desde el mes que elijas
 • Aviso antes de que venza el contrato; renovar y finalizar

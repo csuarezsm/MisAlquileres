@@ -259,3 +259,17 @@ test('facturas: IGIC y retención en el recibo, numeración, resumen trimestral 
   const c2 = s.cargos.find((x) => x.contratoId !== ct.id); assert.equal(c2.importe, 70000); assert.equal(c2.base, undefined);
   assert.throws(() => MA.datosFactura(s, c2.id, H), (e) => e.code === 'DATOS');
 });
+
+test('documentos: modelos de contrato por tipo, Word válido y acta en PDF', () => {
+  globalThis.PDF = require('../www/pdf.js'); const Doc = require('../www/documentos.js'), Ex = require('../www/exportar.js');
+  const d = { lugar: 'Arrecife', fecha: '2026-11-21', arrendadores: [{ nombre: 'María', dni: '1A' }], arrendatario: { nombre: 'Ana', dni: '2B' }, inmueble: { direccion: 'C/ Real 4' },
+    inicio: '2026-12-01', fin: null, anios: 1, renta: 75000, fianza: 75000, actualizacion: 'irav', gastos: [] };
+  const txt = (tipo, extra) => Doc.contrato({ ...d, tipo, ...extra }).bloques.map((b) => b.x || '').join('\n');
+  const v = txt('vivienda'); assert.match(v, /artículo 9/); assert.match(v, /Índice de Referencia/); assert.match(v, /una mensualidad/); assert.doesNotMatch(v, /\ba EL\b|\bde EL\b/);
+  const l = txt('local', { impuesto: { nombre: 'IGIC', pct: 7 }, retencion: true, actualizacion: 'ipc' }); assert.match(l, /dos mensualidades/); assert.match(l, /IGIC/); assert.match(l, /19 %/); assert.match(l, /artículo 34/);
+  assert.match(txt('garaje', { vehiculo: '1234 ABC' }), /1234 ABC/); assert.match(txt('habitacion'), /Código Civil/); assert.match(txt('trastero'), /inflamables/);
+  assert.equal(Doc.tipoDe('Plaza de garaje'), 'garaje'); assert.equal(Doc.tipoDe('Vivienda', true), 'habitacion'); assert.equal(Doc.tipoDe('Nave'), 'local');
+  const w = Buffer.from(Doc.docx(Doc.contrato({ ...d, tipo: 'vivienda' }), Ex.zip)); assert.equal(w.slice(0, 2).toString(), 'PK'); assert.match(w.toString('utf8'), /\[Content_Types\]\.xml/);
+  const pdf = Buffer.from(Doc.pdfActa({ tipo: 'salida', fecha: '2026-12-01', inmueble: 'Piso', estancias: [{ nombre: 'Salón', estado: 'mal', notas: 'Mancha', fotos: [] }], contadores: { luz: '1' } })).toString('latin1');
+  assert.ok(pdf.startsWith('%PDF') && /Acta de salida/.test(pdf) && /Con da/.test(pdf));
+});

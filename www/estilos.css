@@ -186,3 +186,6 @@ label.f.chk.tar { padding: 14px; }
 .candado h2 { font-size: calc(24px * var(--fs)); }
 .candado p { color: var(--oncab2); margin-bottom: 8px; }
 body.bloqueada main, body.bloqueada .barra, body.bloqueada .hoja, body.bloqueada .cab { visibility: hidden; }
+
+/* Actas: firmas */
+canvas.firma, img.firma { display: block; width: 100%; height: auto; aspect-ratio: 3 / 1; background: #fff; border: 1px dashed var(--line); border-radius: var(--r2); touch-action: none; margin-top: 8px; }

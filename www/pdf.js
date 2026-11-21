@@ -34,13 +34,27 @@
   const n = (x) => (Math.round(x * 100) / 100).toString();
   const rgb = (c) => c.map(n).join(' ');
 
+  // Tamaño y color de un JPEG (marcador SOF)
+  function infoJpeg(b) {
+    if (!b || b[0] !== 0xff || b[1] !== 0xd8) return null;
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const m = b[i + 1], largo = (b[i + 2] << 8) | b[i + 3];
+      if ((m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) || (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)) return { alto: (b[i + 5] << 8) | b[i + 6], ancho: (b[i + 7] << 8) | b[i + 8], comps: b[i + 9] };
+      i += 2 + largo;
+    }
+    return null;
+  }
+  const binario = (b) => { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return s; };
+
   // Coordenadas desde arriba a la izquierda, en puntos. Las operaciones se guardan como funciones del alto final.
   function Documento(opc = {}) {
-    const paginas = [];
+    const paginas = [], imagenes = [];
     let pg = null;
     const doc = {
       ancho: opc.ancho || 595, alto: opc.alto || 842, margen: opc.margen || 44, y: 0, ajustar: !!opc.ajustar,
-      pagina() { pg = { ops: [], ancho: doc.ancho, alto: doc.alto }; paginas.push(pg); doc.y = doc.margen; if (doc.alPaginar) doc.alPaginar(doc); return doc; },
+      pagina() { pg = { ops: [], imgs: new Set(), ancho: doc.ancho, alto: doc.alto }; paginas.push(pg); doc.y = doc.margen; if (doc.alPaginar) doc.alPaginar(doc); return doc; },
       texto(x, y, txt, o = {}) {
         const size = o.size || 10, f = o.negrita ? 'F2' : 'F1', t = o.max ? recorta(txt, size, o.max, o.negrita) : String(txt);
         const xx = o.alinear === 'derecha' ? x - ancho(t, size, o.negrita) : o.alinear === 'centro' ? x - ancho(t, size, o.negrita) / 2 : x;
@@ -49,6 +63,14 @@
         return doc;
       },
       linea(x1, y1, x2, y2, o = {}) { pg.ops.push((H) => `${rgb(o.color || [0.82, 0.84, 0.85])} RG ${n(o.grosor || 0.6)} w ${n(x1)} ${n(H - y1)} m ${n(x2)} ${n(H - y2)} l S`); return doc; },
+      // Imagen JPEG encajada en la caja w×h (sin deformar). Devuelve el alto usado.
+      imagen(x, y, w, h, bytes, o = {}) {
+        const inf = infoJpeg(bytes); if (!inf) return 0;
+        const k = Math.min(w / inf.ancho, h / inf.alto), iw = inf.ancho * k, ih = inf.alto * k, xx = o.centro ? x + (w - iw) / 2 : x;
+        const im = { bytes, ...inf, n: imagenes.length + 1 }; imagenes.push(im); pg.imgs.add(im);
+        pg.ops.push((H) => `q ${n(iw)} 0 0 ${n(ih)} ${n(xx)} ${n(H - y - ih)} cm /Im${im.n} Do Q`);
+        return ih;
+      },
       rect(x, y, w, h, color) { pg.ops.push((H) => `${rgb(color)} rg ${n(x)} ${n(H - y - h)} ${n(w)} ${n(h)} re f`); return doc; },
       parrafo(txt, o = {}) {
         const size = o.size || 10, x = o.x != null ? o.x : doc.margen, max = o.ancho || doc.ancho - x - doc.margen, alto = size * (o.interlinea || 1.4);
@@ -88,8 +110,10 @@
         if (doc.ajustar) pg.alto = Math.ceil(doc.y + doc.margen);
         const objs = [], add = (s) => { objs.push(s); return objs.length; };
         const cat = add(null), pags = add(null), f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'), f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+        for (const im of imagenes) im.obj = add(`<< /Type /XObject /Subtype /Image /Width ${im.ancho} /Height ${im.alto} /ColorSpace /${im.comps === 1 ? 'DeviceGray' : im.comps === 4 ? 'DeviceCMYK' : 'DeviceRGB'} /BitsPerComponent 8 /Filter /DCTDecode${im.comps === 4 ? ' /Decode [1 0 1 0 1 0 1 0]' : ''} /Length ${im.bytes.length} >>\nstream\n${binario(im.bytes)}\nendstream`);
         const kids = paginas.map((p) => { const s = p.ops.map((f) => f(p.alto)).join('\n'), c = add(`<< /Length ${s.length} >>\nstream\n${s}\nendstream`);
-          return add(`<< /Type /Page /Parent ${pags} 0 R /MediaBox [0 0 ${n(p.ancho)} ${n(p.alto)}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`); });
+          const xo = p.imgs.size ? ` /XObject << ${[...p.imgs].map((im) => `/Im${im.n} ${im.obj} 0 R`).join(' ')} >>` : '';
+          return add(`<< /Type /Page /Parent ${pags} 0 R /MediaBox [0 0 ${n(p.ancho)} ${n(p.alto)}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >>${xo} >> /Contents ${c} 0 R >>`); });
         objs[cat - 1] = `<< /Type /Catalog /Pages ${pags} 0 R >>`;
         objs[pags - 1] = `<< /Type /Pages /Kids [${kids.map((k) => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
         let out = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'; const xref = [];
@@ -269,5 +293,5 @@
     return d.bytes();
   }
 
-  return { Documento, ancho, recibo, factura, listado, extracto, renta, eur };
+  return { Documento, ancho, infoJpeg, recibo, factura, listado, extracto, renta, eur, fecha: f, hex, suave, GRIS };
 });

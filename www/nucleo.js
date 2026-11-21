@@ -62,7 +62,7 @@
       ajustes: { propietario: '', formaPago: 'Bizum o transferencia', limiteGratis: 1 },
       plantillas: { ...PLANTILLAS },
       inmuebles: [], inquilinos: [], contratos: [], cargos: [], pagos: [], conceptos: [], gastos: [], reembolsos: [], fianzas: [],
-      claves: {}, registro: [], adjuntos: [], numeracion: {} };
+      claves: {}, registro: [], adjuntos: [], numeracion: {}, actas: [] };
   }
   const id = (s) => ++s.seq;
   const por = (lista, i) => lista.find((x) => x.id === i);
@@ -716,7 +716,7 @@
     for (const k of ['inmuebles', 'inquilinos', 'contratos', 'cargos', 'pagos', 'conceptos', 'gastos', 'reembolsos', 'fianzas', 'registro']) if (!Array.isArray(s[k])) throw err('COPIA', 'La copia está incompleta');
     const max = Math.max(0, ...['inmuebles', 'inquilinos', 'contratos', 'cargos', 'pagos', 'conceptos', 'gastos', 'reembolsos', 'fianzas'].flatMap((k) => s[k].map((x) => x.id || 0)));
     return { ...base, ...s, pro: false, seq: Math.max(Number(s.seq) || 0, max), ajustes: { ...base.ajustes, ...s.ajustes, limiteGratis: base.ajustes.limiteGratis }, plantillas: { ...base.plantillas, ...s.plantillas },
-      claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {} };
+      claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {}, actas: Array.isArray(s.actas) ? s.actas : [] };
   }
 
   return { VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,

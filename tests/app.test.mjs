@@ -246,6 +246,29 @@ try {
     const s = await S(q); assert.ok(s.cargos.some((c) => c.factura && /^F\d{4}-\d{4}$/.test(c.factura.numero)));
     if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
+  await paso('contrato para firmar en PDF y Word, y acta de entrada con foto y firma', async () => {
+    const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click(); await q.locator('[data-a=finEjemplo]').waitFor();
+    await q.evaluate(() => { const s = window.__ma.S; s.ajustes.dni = '42000000T'; s.inquilinos[0].dni = '78000000X'; });
+    await q.goto(URL0 + '#contratos'); await q.locator('[data-a=contrato]').first().click(); await q.locator('#hoja [data-a=docContrato]').click();
+    await campo(q, 'lugar').fill('Arrecife'); let [d] = await Promise.all([q.waitForEvent('download'), guardar(q)]);
+    let b = fs.readFileSync(await d.path(), 'latin1'); assert.ok(b.startsWith('%PDF') && /CONTRATO DE ARRENDAMIENTO DE VIVIENDA/.test(b) && /Arrecife/.test(b) && /78000000X/.test(b));
+    await q.locator('#hoja [data-a=docContrato]').click(); await campo(q, 'formato').selectOption('docx'); [d] = await Promise.all([q.waitForEvent('download'), guardar(q)]);
+    b = fs.readFileSync(await d.path()); assert.equal(b.slice(0, 2).toString(), 'PK'); assert.match(b.toString('utf8'), /word\/document\.xml/); assert.match(b.toString('utf8'), /Ley 29\/1994/);
+    await q.locator('#hoja [data-a=actaNueva][data-t=entrada]').click(); await q.locator('#facta').waitFor();
+    await q.locator('#facta [name=eo0]').fill('Paredes recién pintadas'); await q.locator('#facta [data-estado="1:regular"]').click();
+    const jpg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKp//2Q==', 'base64');
+    await q.locator('#facta input[data-adjuntar$=":0"]').setInputFiles({ name: 'salon.jpg', mimeType: 'image/jpeg', buffer: jpg }); await q.locator('#toast').getByText('Documento guardado').waitFor();
+    assert.equal(await q.locator('#facta [name=eo0]').inputValue(), 'Paredes recién pintadas', 'las notas no se pierden al añadir una foto');
+    const cv = q.locator('canvas[data-firma=arrendatario]'); await cv.scrollIntoViewIfNeeded(); const r = await cv.boundingBox();
+    await q.mouse.move(r.x + 20, r.y + 30); await q.mouse.down(); await q.mouse.move(r.x + 120, r.y + 60, { steps: 8 }); await q.mouse.move(r.x + 200, r.y + 20, { steps: 8 }); await q.mouse.up();
+    await q.locator('#facta [name=cluz]').fill('12345'); await foto(q, '14-acta');
+    await q.locator('#facta button[type=submit]').click(); await q.locator('#hoja [data-a=acta]').waitFor();
+    const s = await S(q), a = s.actas[0]; assert.equal(a.estancias[1].estado, 'regular'); assert.ok(/^data:image\/jpeg/.test(a.firmas.arrendatario)); assert.equal(a.contadores.luz, '12345');
+    assert.equal(s.adjuntos.filter((x) => x.tipo === 'acta' && x.estancia === 0).length, 1);
+    await q.locator('#hoja [data-a=acta]').click(); [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-x=pdf]').click()]);
+    b = fs.readFileSync(await d.path(), 'latin1'); assert.ok(b.startsWith('%PDF') && /DCTDecode/.test(b) && /Acta de entrada/.test(b));
+    if (process.env.RECOGER) await recoger(q); await q.context().close();
+  });
   await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {
     const q = await pagina(); await q.getByRole('button', { name: 'Alta rápida' }).click();
     await campo(q, 'inmueble').fill('Plaza 7'); await campo(q, 'inquilino').fill('Eva Ruiz'); await campo(q, 'importe').fill('60'); await guardar(q);
