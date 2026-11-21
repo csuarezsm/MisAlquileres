@@ -108,11 +108,18 @@
       const filas = s.pagos.filter((p) => { const c = cg.get(p.cargoId); return c && filtraCt(s, ctDe(s, c.contratoId), F) && enRango(p.fecha, F); }).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id - b.id)
         .map((p) => { const c = cg.get(p.cargoId); return [p.fecha, c.inmueble, c.inquilino, mes(c.periodo), p.anulado ? 0 : p.importe, p.metodo, T(p.origen === 'estimado' ? 'Estimado' : 'Real'), p.anulado ? `${T('Anulado')} ${fmt(p.anulado.fecha)}: ${p.anulado.motivo}` : '', p.notas]; });
       return { columnas: [C('Fecha', 'fecha'), C('Inmueble'), C('Inquilino'), C('Mes del alquiler'), C('Importe', 'euros'), C('Método'), C('Origen'), C('Anulación'), C('Notas')], filas, totales: [null, null, null, null, sum(filas, 4)] }; } },
+    facturas: { titulo: 'Facturas', icono: 'informe', fechas: true, crear(s, F, hoy) {
+      const filas = MA.cargos(s, hoy, (c) => c.base != null && !c.anulado && filtraCt(s, ctDe(s, c.contratoId), F) && enRango(MA.masDias(c.periodo + '-01', 0), F))
+        .sort((a, b) => a.periodo.localeCompare(b.periodo) || a.id - b.id).map((c) => { const q = por(s.inquilinos, ctDe(s, c.contratoId).inquilinoId) || {};
+          return [c.factura ? c.factura.numero : '', c.factura ? c.factura.fecha : c.vence, mes(c.periodo), c.inquilino, q.dni || '', c.inmueble, c.base, c.impuesto ? `${MA.IMPUESTOS[c.impuesto].nombre} ${String(c.pct).replace('.', ',')} %` : '', c.cuota || 0, c.ret || 0, c.importe, c.pagado]; });
+      return { columnas: [C('Nº de factura'), C('Fecha', 'fecha'), C('Mes del alquiler'), C('Cliente'), C('NIF'), C('Inmueble'), C('Base imponible', 'euros'), C('Impuesto'), C('Cuota', 'euros'), C('Retención', 'euros'), C('Total', 'euros'), C('Cobrado', 'euros')],
+        filas, totales: [null, null, null, null, null, null, sum(filas, 6), null, sum(filas, 8), sum(filas, 9), sum(filas, 10), sum(filas, 11)] }; } },
     deudas: { titulo: 'Deudas por inquilino', icono: 'alerta', crear(s, F, hoy) {
       const m = new Map();
       for (const c of MA.cargos(s, hoy, (x) => filtraCt(s, ctDe(s, x.contratoId), F)).filter((x) => x.estado === 'atrasado' || (x.estado === 'parcial' && x.vence < hoy))) {
         const k = c.contratoId, e = m.get(k) || { c, n: 0, deuda: 0, desde: c.vence, meses: [] }; e.n++; e.deuda += c.pendiente; if (c.vence < e.desde) e.desde = c.vence; e.meses.push(c.periodo); m.set(k, e); }
-      const g = new Map(); for (const x of MA.gastos(s, hoy, (y) => y.porCobrar > 0 || y.repercutir > 0)) if (x.porCobrar > 0 && x.contratoId && filtraCt(s, ctDe(s, x.contratoId), F)) g.set(x.contratoId, (g.get(x.contratoId) || 0) + x.porCobrar);
+      const g = new Map(); for (const x of MA.gastos(s, hoy, (y) => y.porCobrar > 0 || y.repercutir > 0)) {
+        for (const pt of x.partes ? x.partes.map((y) => [y.contratoId, y.pendiente]) : [[x.contratoId, x.porCobrar]]) if (pt[1] > 0 && pt[0] && filtraCt(s, ctDe(s, pt[0]), F)) g.set(pt[0], (g.get(pt[0]) || 0) + pt[1]); }
       const ids = new Set([...m.keys(), ...g.keys()]);
       const filas = [...ids].map((k) => { const e = m.get(k), ct = ctDe(s, k), q = por(s.inquilinos, ct.inquilinoId);
         return [q.nombre, q.telefono, por(s.inmuebles, ct.inmuebleId).nombre, e ? e.n : 0, e ? e.meses.join(', ') : '', e ? e.deuda : 0, g.get(k) || 0, (e ? e.deuda : 0) + (g.get(k) || 0), e ? e.desde : null, e ? MA.diasEntre(e.desde, hoy) : null]; })

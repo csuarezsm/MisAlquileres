@@ -232,6 +232,20 @@ try {
     await q.locator('[data-titular]').selectOption({ label: 'Juan Pérez' }); await q.waitForTimeout(150);
     if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
+  await paso('locales: contrato con IGIC y retención, factura en PDF y resumen trimestral', async () => {
+    const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click(); await q.locator('[data-a=finEjemplo]').waitFor();
+    await q.evaluate(() => { const s = window.__ma.S, MA = window.MA, H = new Date().toISOString().slice(0, 10); s.pro = true; s.ajustes.dni = '42000000T';
+      const p = MA.crearInmueble(s, { nombre: 'Local Calle Real 2', tipo: 'Local comercial' }, H), i = MA.crearInquilino(s, { nombre: 'Panadería Los Volcanes SL', dni: 'B35000000' });
+      MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: i.id, inicio: MA.masMeses(H.slice(0, 7) + '-01', -5), importe: 100000, impuesto: 'igic', retencion: true }, H); window.__ma.pinta(); });
+    await q.goto(URL0 + '#mas'); await q.locator('a[href="#impuestos"], [data-a="#impuestos"]').first().click(); await q.locator('.kpis').waitFor();
+    const n = await q.locator('[data-a=emitirFacturas]').count(); if (n) { await q.locator('[data-a=emitirFacturas]').click(); await q.locator('#toast').getByText(/Emitida/).waitFor(); }
+    await foto(q, '13-impuestos');
+    await q.locator('.filas [data-a=cobro]').first().click(); await q.locator('#hoja').getByText('Base imponible').waitFor();
+    const [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-a=facturaPdf]').click()]); const b = fs.readFileSync(await d.path(), 'latin1');
+    assert.ok(b.startsWith('%PDF') && /Factura/.test(b) && /IGIC/.test(b) && /B35000000/.test(b));
+    const s = await S(q); assert.ok(s.cargos.some((c) => c.factura && /^F\d{4}-\d{4}$/.test(c.factura.numero)));
+    if (process.env.RECOGER) await recoger(q); await q.context().close();
+  });
   await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {
     const q = await pagina(); await q.getByRole('button', { name: 'Alta rápida' }).click();
     await campo(q, 'inmueble').fill('Plaza 7'); await campo(q, 'inquilino').fill('Eva Ruiz'); await campo(q, 'importe').fill('60'); await guardar(q);

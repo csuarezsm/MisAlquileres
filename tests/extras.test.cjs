@@ -229,3 +229,33 @@ test('copropiedad: porcentajes validados e informe de la Renta por titular', () 
   assert.match(juan.inmuebles[0].avisos[0], /50 %/);
   MA.editarInmueble(s, p.id, { titulares: [{ yo: true, pct: 100 }] }); assert.deepEqual(MA.partes(p), [{ nombre: '', nif: '', pct: 100, yo: true }]);
 });
+
+test('facturas: IGIC y retención en el recibo, numeración, resumen trimestral y Renta sin impuesto', () => {
+  const s = MA.nuevo(); s.pro = true; const H = '2026-11-20'; s.ajustes.dni = '42000000T';
+  const p = MA.crearInmueble(s, { nombre: 'Local', tipo: 'Local comercial' }, H), q = MA.crearInquilino(s, { nombre: 'Panadería SL', dni: 'B35000000' });
+  const ct = MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2026-07-01', importe: 100000, impuesto: 'igic', retencion: true }, H);
+  const c = s.cargos.find((x) => x.periodo === '2026-10');
+  assert.deepEqual([c.base, c.cuota, c.ret, c.importe], [100000, 7000, 19000, 88000]);
+  MA.registrarPago(s, { cargoId: c.id, importe: 88000, fecha: '2026-10-02' }, H);
+  const f1 = MA.datosFactura(s, c.id, H), f2 = MA.datosFactura(s, s.cargos.find((x) => x.periodo === '2026-11').id, H);
+  assert.equal(f1.numero, 'F2026-0001'); assert.equal(f2.numero, 'F2026-0002'); assert.equal(MA.datosFactura(s, c.id, H).numero, 'F2026-0001', 'no se renumera');
+  assert.equal(f1.completo, true); assert.equal(f2.completo, false);
+  const t4 = MA.resumenTrimestre(s, 2026, 4, H); assert.equal(t4.filas.length, 2); assert.equal(t4.cuota, 14000); assert.equal(t4.ret, 38000); assert.equal(t4.tipos[0].impuesto, 'IGIC');
+  assert.equal(MA.resumenTrimestre(s, 2026, 3, H).sinNumero, 3);
+  // Cambiar a IVA 21 % recalcula los recibos sin cobros, no los cobrados
+  MA.editarContrato(s, ct.id, { impuesto: 'iva' }, H);
+  assert.equal(s.cargos.find((x) => x.periodo === '2026-11').importe, 100000 + 21000 - 19000); assert.equal(c.importe, 88000);
+  // Cambio de un recibo: se indica la base
+  MA.ajustarCargo(s, s.cargos.find((x) => x.periodo === '2026-11').id, 50000, H); assert.equal(s.cargos.find((x) => x.periodo === '2026-11').importe, 50000 + 10500 - 9500);
+  // Renta: ingresos = bases, retenciones = las de cada recibo
+  const r = MA.informeRenta(s, 2026, H).inmuebles[0];
+  assert.equal(r.ingresos.total, 100000 * 4 + 50000 + 100000 * 0 + 0 + (s.cargos.length - 5) * 0);
+  assert.equal(r.retenciones, 19000 * 4 + 9500);
+  // Panel: lo cobrado cuenta como ingreso sin el impuesto
+  const k = MA.panel(s, H).inmuebles.find((x) => x.id === p.id); assert.equal(k.ingresos, 100000);
+  // Vivienda sin impuesto ni retención: el recibo no cambia
+  const p2 = MA.crearInmueble(s, { nombre: 'Piso', tipo: 'Vivienda' }, H), q2 = MA.crearInquilino(s, { nombre: 'Ana' });
+  MA.crearContrato(s, { inmuebleId: p2.id, inquilinoId: q2.id, inicio: '2026-11-01', importe: 70000 }, H);
+  const c2 = s.cargos.find((x) => x.contratoId !== ct.id); assert.equal(c2.importe, 70000); assert.equal(c2.base, undefined);
+  assert.throws(() => MA.datosFactura(s, c2.id, H), (e) => e.code === 'DATOS');
+});

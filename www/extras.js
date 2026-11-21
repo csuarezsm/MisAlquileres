@@ -64,6 +64,41 @@
       pagos: pagos.map((x) => ({ fecha: x.fecha, importe: x.importe, metodo: x.metodo })), completo: pagado >= c.importe };
   }
 
+  // ---------- Facturas (alquileres con IGIC/IVA o retención) ----------
+  // Numeración propia por año (F2026-0001). Se emite aunque no esté cobrada: la factura nace con el mes, no con el pago.
+  function datosFactura(s, cargoId, hoy) {
+    hoyOk(hoy);
+    const c = exige(s.cargos, cargoId, 'Recibo'), ct = por(s.contratos, c.contratoId), q = por(s.inquilinos, ct.inquilinoId) || {}, p = por(s.inmuebles, ct.inmuebleId) || {};
+    if (c.base == null) throw err('DATOS', 'Este alquiler no lleva factura: indica el IGIC, el IVA o la retención en el contrato');
+    if (c.anulado) throw err('ANULADO', 'Ese recibo está anulado');
+    if (!c.factura) {
+      const fechaF = c.vence <= hoy ? c.vence : hoy, anio = fechaF.slice(0, 4), k = 'F' + anio;
+      s.numeracion[k] = (s.numeracion[k] || 0) + 1;
+      c.factura = { numero: `F${anio}-${String(s.numeracion[k]).padStart(4, '0')}`, fecha: fechaF };
+      anota(s, hoy, 'factura_emitida', cargoId, { numero: c.factura.numero });
+    }
+    const pagos = s.pagos.filter((x) => x.cargoId === cargoId && !x.anulado).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id - b.id), pagado = pagos.reduce((t, x) => t + x.importe, 0);
+    return { numero: c.factura.numero, fecha: c.factura.fecha, emitido: hoy, propietario: s.ajustes.propietario || '', propietarioDni: s.ajustes.dni || '', propietarioDomicilio: s.ajustes.domicilio || '',
+      inquilino: q.nombre || '', inquilinoDni: q.dni || '', inquilinoDomicilio: q.domicilio || '', inmueble: p.nombre || '', direccion: p.direccion || '', referencia: p.referencia || '',
+      periodo: c.periodo, mes: fmes(c.periodo), base: c.base, impuesto: c.impuesto ? MA.IMPUESTOS[c.impuesto].nombre : '', pct: c.pct || 0, cuota: c.cuota || 0, retPct: c.ret ? MA.RETENCION : 0, ret: c.ret || 0,
+      total: c.importe, pagado: Math.min(pagado, c.importe), pendiente: Math.max(0, c.importe - pagado), formaPago: s.ajustes.formaPago || '',
+      pagos: pagos.map((x) => ({ fecha: x.fecha, importe: x.importe, metodo: x.metodo })), completo: pagado >= c.importe,
+      avisos: [!s.ajustes.dni && 'Falta tu DNI/NIF en Mis datos: la factura lo necesita.', !q.dni && 'Falta el NIF del inquilino: la factura lo necesita.'].filter(Boolean) };
+  }
+  // Resumen por trimestre: impuesto repercutido (modelos 420 del IGIC o 303 del IVA) y retenciones soportadas
+  function resumenTrimestre(s, anio, tri, hoy) {
+    hoyOk(hoy); const ini = `${anio}-${String((tri - 1) * 3 + 1).padStart(2, '0')}`, fin = `${anio}-${String(tri * 3).padStart(2, '0')}`;
+    const cs = s.cargos.filter((c) => !c.anulado && c.base != null && c.periodo >= ini && c.periodo <= fin), filas = [];
+    for (const c of cs.sort((a, b) => a.periodo.localeCompare(b.periodo) || a.id - b.id)) {
+      const ct = por(s.contratos, c.contratoId) || {}, q = por(s.inquilinos, ct.inquilinoId) || {}, p = por(s.inmuebles, ct.inmuebleId) || {};
+      filas.push({ id: c.id, factura: c.factura ? c.factura.numero : '', fecha: c.factura ? c.factura.fecha : c.vence, periodo: c.periodo, inquilino: q.nombre || '', nif: q.dni || '', inmueble: p.nombre || '',
+        impuesto: c.impuesto ? MA.IMPUESTOS[c.impuesto].nombre : '', base: c.base, pct: c.pct || 0, cuota: c.cuota || 0, ret: c.ret || 0, total: c.importe, cobrado: Math.min(MA.pagadoDe(s, c.id), c.importe) });
+    }
+    const por_ = {}; for (const f of filas) if (f.impuesto) { const k = `${f.impuesto} ${pct(f.pct)}`; por_[k] = por_[k] || { impuesto: f.impuesto, pct: f.pct, base: 0, cuota: 0 }; por_[k].base += f.base; por_[k].cuota += f.cuota; }
+    const sum = (k) => filas.reduce((t, f) => t + f[k], 0);
+    return { anio: Number(anio), tri: Number(tri), filas, tipos: Object.values(por_), base: sum('base'), cuota: sum('cuota'), ret: sum('ret'), total: sum('total'), cobrado: sum('cobrado'), sinNumero: filas.filter((f) => !f.factura).length };
+  }
+
   // ---------- 6. Actualización anual de la renta ----------
   const INDICES = { irav: 'IRAV (índice de referencia de arrendamientos de vivienda)', ipc: 'IPC', fijo: 'porcentaje pactado', ninguna: 'sin actualización' };
   // Aniversario del contrato que toca aplicar ahora o en los próximos 45 días (null si no toca o ya está hecho)
@@ -335,12 +370,13 @@
     const factor = diasProp ? diasAlq / diasProp : 0, dentro = (f) => tramos.some(([a, b]) => f >= a && f <= b), vivienda = MA.VIVIENDA.includes(p.tipo), avisos = [];
     const contratos = s.contratos.filter((c) => c.inmuebleId === p.id && c.inicio <= fin && (!MA.finEfectivo(c) || MA.finEfectivo(c) >= ini)).map((c) => {
       const q = por(s.inquilinos, c.inquilinoId) || {}, cs = s.cargos.filter((x) => x.contratoId === c.id && !x.anulado && x.periodo.slice(0, 4) === String(anio));
-      const ingresos = cs.reduce((t, x) => t + x.importe, 0), cobrado = cs.reduce((t, x) => t + Math.min(MA.pagadoDe(s, x.id), x.importe), 0);
+      const bse = MA.baseDe, prop = (x, v) => (x.base != null && x.importe ? Math.round(v * x.base / x.importe) : v);
+      const ingresos = cs.reduce((t, x) => t + bse(x), 0), cobrado = cs.reduce((t, x) => t + prop(x, Math.min(MA.pagadoDe(s, x.id), x.importe)), 0);
       const auto = (c.uso || (vivienda ? 'vivienda' : 'otro')) !== 'vivienda' ? 0 : anio <= 2023 || (c.firma || c.inicio) < MA.LEY_VIVIENDA ? 60 : 50;
       const reduccion = c.reduccion != null ? c.reduccion : auto;
       if (!q.dni) avisos.push(`Falta el DNI/NIF de ${q.nombre}: Renta Web lo pide para cada arrendatario.`);
-      const dudoso = cs.filter((x) => x.vence <= `${anio}-06-30` && MA.pagadoDe(s, x.id) < x.importe).reduce((t, x) => t + x.importe - MA.pagadoDe(s, x.id), 0);
-      return { id: c.id, inquilino: q.nombre, dni: q.dni || '', inicio: c.inicio, fin: MA.finEfectivo(c), ingresos, cobrado, pendiente: ingresos - cobrado, reduccion, retenciones: c.retencion ? Math.round(ingresos * 0.19) : 0, dudoso };
+      const dudoso = cs.filter((x) => x.vence <= `${anio}-06-30` && MA.pagadoDe(s, x.id) < x.importe).reduce((t, x) => t + prop(x, x.importe - MA.pagadoDe(s, x.id)), 0);
+      return { id: c.id, inquilino: q.nombre, dni: q.dni || '', inicio: c.inicio, fin: MA.finEfectivo(c), ingresos, cobrado, pendiente: ingresos - cobrado, reduccion, retenciones: cs.reduce((t, x) => t + (x.ret != null ? x.ret : c.retencion ? Math.round(bse(x) * 0.19) : 0), 0), dudoso };
     });
     const rentas = contratos.reduce((t, c) => t + c.ingresos, 0), pendiente = contratos.reduce((t, c) => t + c.pendiente, 0);
     const gs = s.gastos.filter((g) => g.inmuebleId === p.id && !g.anulado && g.fecha.slice(0, 4) === String(anio));
@@ -458,7 +494,7 @@
     return MA.csv(['Inmueble', 'Concepto', 'Importe', 'Imputación'], filas);
   }
 
-  return { letras, eurosLetras, datosRecibo, INDICES, actualizacionPendiente, aplicarActualizacion, omitirActualizacion, registrarDeposito, recuperarDeposito, avisosFianza,
+  return { letras, eurosLetras, datosRecibo, datosFactura, resumenTrimestre, INDICES, actualizacionPendiente, aplicarActualizacion, omitirActualizacion, registrarDeposito, recuperarDeposito, avisosFianza,
     escalon, avisosApp, proximosAvisos, cobroDesdeAviso, conciliar, aplicarConciliacion, altaRapida, importarCartera, PLANTILLA_CARTERA, fechaTexto,
     agregarAdjunto, quitarAdjunto, adjuntosDe, GRUPOS_RENTA: GRUPOS, informeRenta, csvRenta, partes, titulares, informeTitular, normalizar: norm, pctTexto: pct, fmes };
 });

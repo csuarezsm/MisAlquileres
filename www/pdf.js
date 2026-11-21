@@ -154,6 +154,44 @@
     return d.bytes();
   }
 
+  // Factura de alquiler (locales, oficinas, naves…): base, IGIC/IVA, retención y total
+  function factura(r, o = {}) {
+    const t = o.t || id, acento = hex(o.acento), d = Documento({ ancho: 420, alto: 2000, margen: 26, ajustar: true }), M = d.margen, D = d.ancho - M, A = D - M;
+    d.rect(0, 0, d.ancho, 5, acento);
+    d.y = 22;
+    d.texto(M, d.y, t('Factura'), { size: 16, negrita: true });
+    d.texto(D, d.y + 1, `${t('Nº')} ${r.numero}`, { size: 10.5, negrita: true, alinear: 'derecha' });
+    d.texto(D, d.y + 16, `${t('Fecha')}: ${f(r.fecha)}`, { size: 9, color: GRIS, alinear: 'derecha' });
+    d.y += 38;
+    const col = (x, et, nombre, dni, dom) => { d.texto(x, d.y, t(et), { size: 7.5, color: GRIS }); d.texto(x, d.y + 11, nombre || '—', { size: 10, negrita: true, max: A / 2 - 10 });
+      d.texto(x, d.y + 25, `${t('NIF')} ${dni || '—'}`, { size: 8, color: dni ? GRIS : [0.72, 0.2, 0.16] }); if (dom) d.texto(x, d.y + 37, dom, { size: 8, color: GRIS, max: A / 2 - 10 }); };
+    col(M, 'Emisor', r.propietario, r.propietarioDni, r.propietarioDomicilio);
+    col(M + A / 2 + 6, 'Cliente', r.inquilino, r.inquilinoDni, r.inquilinoDomicilio);
+    d.y += (r.propietarioDomicilio || r.inquilinoDomicilio) ? 54 : 42;
+    d.linea(M, d.y, D, d.y); d.y += 10;
+    d.texto(M, d.y, t('Concepto'), { size: 7.5, color: GRIS }); d.texto(D, d.y, t('Importe'), { size: 7.5, color: GRIS, alinear: 'derecha' }); d.y += 11;
+    const ini = d.y; d.parrafo(`${t('Alquiler de')} ${r.inmueble}${r.direccion ? ', ' + r.direccion : ''}${r.referencia ? ` (${t('Ref. catastral')} ${r.referencia})` : ''}. ${t('Mes')}: ${r.mes}.`, { size: 9.5, ancho: A - 90, interlinea: 1.35 });
+    d.texto(D, ini, eur(r.base), { size: 9.5, alinear: 'derecha' });
+    d.y += 6; d.linea(M, d.y, D, d.y, { color: [0.85, 0.86, 0.86] }); d.y += 10;
+    const fila = (a, b, neg) => { d.texto(D - 110, d.y, a, { size: 9, color: neg ? undefined : GRIS, negrita: neg, alinear: 'derecha' }); d.texto(D, d.y, b, { size: 9, negrita: neg, alinear: 'derecha' }); d.y += 14; };
+    fila(t('Base imponible'), eur(r.base));
+    if (r.impuesto) fila(`${r.impuesto} ${String(r.pct).replace('.', ',')} %`, eur(r.cuota));
+    if (r.ret) fila(`${t('Retención IRPF')} ${r.retPct} %`, '-' + eur(r.ret));
+    d.y += 2;
+    const alto = 40;
+    d.rect(M, d.y, A, alto, suave(acento)); d.rect(M, d.y, 3, alto, acento);
+    d.texto(M + 12, d.y + 8, t('Total a pagar'), { size: 7.5, color: GRIS });
+    d.texto(M + 12, d.y + 18, eur(r.total), { size: 16, negrita: true });
+    d.texto(D - 10, d.y + 9, t(r.completo ? 'Pagada' : r.pagado ? 'Pagada en parte' : 'Pendiente de pago'), { size: 8, negrita: true, alinear: 'derecha', color: r.completo ? [0.09, 0.47, 0.3] : [0.72, 0.2, 0.16] });
+    if (!r.completo && r.pagado) d.texto(D - 10, d.y + 22, `${t('Queda pendiente')} ${eur(r.pendiente)}`, { size: 8, alinear: 'derecha', color: GRIS });
+    d.y += alto + 10;
+    if (r.formaPago) { d.texto(M, d.y, `${t('Forma de pago')}: ${r.formaPago}`, { size: 8.5, color: GRIS, max: A }); d.y += 13; }
+    for (const p of r.pagos) { d.texto(M, d.y, `${f(p.fecha)}${p.metodo ? '  ·  ' + p.metodo : ''}`, { size: 8.5, color: GRIS }); d.texto(D, d.y, eur(p.importe), { size: 8.5, alinear: 'derecha', color: GRIS }); d.y += 13; }
+    if (r.ret) { d.y += 4; d.parrafo(t('El cliente debe ingresar la retención en Hacienda (modelo 115) y entregar el certificado anual (modelo 180).'), { size: 7.5, color: GRIS, ancho: A }); }
+    d.y += 8;
+    return d.bytes();
+  }
+
   // Listado: A4 vertical, o apaisado si tiene muchas columnas
   function listado(tabla, o = {}) {
     const t = o.t || id, apaisado = tabla.columnas.length > 6, acento = hex(o.acento);
@@ -231,5 +269,5 @@
     return d.bytes();
   }
 
-  return { Documento, ancho, recibo, listado, extracto, renta, eur };
+  return { Documento, ancho, recibo, factura, listado, extracto, renta, eur };
 });

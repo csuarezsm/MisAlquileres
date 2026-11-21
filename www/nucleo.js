@@ -164,6 +164,22 @@
   }
   const VIVIENDA = ['Vivienda', 'Habitación'];
   const LEY_VIVIENDA = '2023-05-26';
+  // Impuesto indirecto de la renta (locales, oficinas, naves…). En Canarias, IGIC; en la península y Baleares, IVA.
+  const IMPUESTOS = { ninguno: { nombre: '', pct: 0 }, igic: { nombre: 'IGIC', pct: 7 }, iva: { nombre: 'IVA', pct: 21 } };
+  const RETENCION = 19;
+  function desglose(ct, base) {
+    const tipo = IMPUESTOS[ct.impuesto] && ct.impuesto !== 'ninguno' ? ct.impuesto : null, pct = tipo ? (ct.impuestoPct != null ? ct.impuestoPct : IMPUESTOS[tipo].pct) : 0;
+    const cuota = Math.round(base * pct / 100), ret = ct.retencion ? Math.round(base * RETENCION / 100) : 0;
+    return { base, impuesto: tipo, pct, cuota, ret, importe: base + cuota - ret };
+  }
+  // Importe del recibo: lo que el inquilino paga de verdad (base + impuesto − retención). Si no hay ni impuesto ni retención, la base.
+  function fijarImporte(ct, cg, base) {
+    const d = desglose(ct, base);
+    if (d.impuesto || d.ret) Object.assign(cg, { base, impuesto: d.impuesto, pct: d.pct, cuota: d.cuota, ret: d.ret, importe: d.importe });
+    else { delete cg.base; delete cg.impuesto; delete cg.pct; delete cg.cuota; delete cg.ret; cg.importe = base; }
+    return cg;
+  }
+  const baseDe = (cg) => (cg.base != null ? cg.base : cg.importe);
   // Datos del contrato que no afectan a los recibos: uso, firma, actualización anual, IRPF y depósito de la fianza
   function extrasContrato(d, ct, p) {
     if (d.firma !== undefined) { if (d.firma && !esFecha(d.firma)) throw err('FECHA', 'Fecha de firma no válida'); ct.firma = d.firma || null; }
@@ -174,6 +190,8 @@
     if (d.actualizacionPct !== undefined) ct.actualizacionPct = d.actualizacionPct == null || d.actualizacionPct === '' ? null : Number(d.actualizacionPct);
     if (d.reduccion !== undefined) ct.reduccion = d.reduccion == null || d.reduccion === '' ? null : [0, 50, 60, 70, 90].includes(Number(d.reduccion)) ? Number(d.reduccion) : null;
     if (d.retencion !== undefined) ct.retencion = !!d.retencion;
+    if (d.impuesto !== undefined) ct.impuesto = IMPUESTOS[d.impuesto] ? d.impuesto : 'ninguno';
+    if (d.impuestoPct !== undefined) { const v = d.impuestoPct == null || d.impuestoPct === '' ? null : Number(String(d.impuestoPct).replace(',', '.')); if (v != null && !(v >= 0 && v <= 30)) throw err('DATOS', 'Tipo de impuesto no válido'); ct.impuestoPct = v; }
     if (!ct.deposito) ct.deposito = { organismo: '', fecha: null, referencia: '', noAplica: false, recuperado: null };
     return ct;
   }
@@ -220,7 +238,7 @@
     if (inicio !== ct.inicio) { ct.rentas[0].desde = inicio.slice(0, 7); }
     ct.inicio = inicio; ct.fin = fin;
     recortarCargos(s, ct, hoy); generarCargos(s, hoy);
-    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && pagadoDe(s, x.id) === 0)) cg.vence = vence(cg.periodo, ct.diaCobro);
+    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && pagadoDe(s, x.id) === 0)) { cg.vence = vence(cg.periodo, ct.diaCobro); fijarImporte(ct, cg, baseDe(cg)); }
     anota(s, hoy, 'contrato_editado', i);
     return ct;
   }
@@ -236,7 +254,7 @@
     if (!(esCent(importe) && importe > 0)) throw err('IMPORTE', 'La renta debe ser mayor que 0');
     ct.rentas = ct.rentas.filter((r) => r.desde !== desde).concat({ desde, importe }).sort((a, b) => a.desde.localeCompare(b.desde));
     // Solo cambian los recibos sin ningún cobro; los ya cobrados o a medias conservan su importe
-    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && x.periodo >= desde && pagadoDe(s, x.id) === 0)) cg.importe = rentaEn(ct, cg.periodo);
+    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && x.periodo >= desde && pagadoDe(s, x.id) === 0)) fijarImporte(ct, cg, rentaEn(ct, cg.periodo));
     anota(s, hoy, 'renta_revisada', i, { desde, importe });
     return ct;
   }
@@ -285,7 +303,7 @@
       const f = finEfectivo(ct), tope = f && f.slice(0, 7) < mes ? f.slice(0, 7) : mes;
       for (let p = ct.inicio.slice(0, 7), i = 0; p <= tope && i < 1200; i++, p = mesMas(p, 1)) {
         if (hay.has(ct.id + '|' + p)) continue;
-        s.cargos.push({ id: id(s), contratoId: ct.id, periodo: p, vence: vence(p, ct.diaCobro), importe: rentaEn(ct, p), anulado: null, recordatorio: null });
+        s.cargos.push(fijarImporte(ct, { id: id(s), contratoId: ct.id, periodo: p, vence: vence(p, ct.diaCobro), importe: 0, anulado: null, recordatorio: null }, rentaEn(ct, p)));
         n++;
       }
     }
@@ -338,9 +356,11 @@
   }
   function restaurarCargo(s, i, hoy) { const c = exige(s.cargos, i, 'Recibo'); c.anulado = null; anota(s, hoyOk(hoy), 'recibo_restaurado', i); return c; }
   function ajustarCargo(s, i, importe, hoy) {
-    const c = exige(s.cargos, i, 'Recibo');
-    if (!(esCent(importe) && importe >= 0) || importe < pagadoDe(s, i)) throw err('IMPORTE', 'El importe no puede ser menor que lo ya cobrado');
-    anota(s, hoyOk(hoy), 'recibo_ajustado', i, { antes: c.importe, ahora: importe }); c.importe = importe;
+    const c = exige(s.cargos, i, 'Recibo'), ct = por(s.contratos, c.contratoId);
+    if (!(esCent(importe) && importe >= 0)) throw err('IMPORTE', 'Importe no válido');
+    const nuevo = c.base != null ? desglose(ct, importe).importe : importe;
+    if (nuevo < pagadoDe(s, i)) throw err('IMPORTE', 'El importe no puede ser menor que lo ya cobrado');
+    anota(s, hoyOk(hoy), 'recibo_ajustado', i, { antes: c.importe, ahora: nuevo }); if (c.base != null) fijarImporte(ct, c, importe); else c.importe = importe;
     return c;
   }
   function vistaCargo(s, c, hoy) {
@@ -593,7 +613,7 @@
     const ocupados = new Set(vigentes.map((c) => c.inmuebleId));
     const cargoDe = new Map(s.cargos.map((c) => [c.id, c])), ctDe = new Map(s.contratos.map((c) => [c.id, c]));
     const ingresos = (a, b, pid) => s.pagos.reduce((t, p) => { if (p.anulado) return t; const m = p.fecha.slice(0, 7); if (m < a || m > b) return t;
-      const cg = cargoDe.get(p.cargoId); return !cg || cg.anulado || (pid && ctDe.get(cg.contratoId).inmuebleId !== pid) ? t : t + p.importe; }, 0);
+      const cg = cargoDe.get(p.cargoId); return !cg || cg.anulado || (pid && ctDe.get(cg.contratoId).inmuebleId !== pid) ? t : t + (cg.base != null && cg.importe ? Math.round(p.importe * cg.base / cg.importe) : p.importe); }, 0);
     const gastado = (a, b, pid, fin) => s.gastos.reduce((t, g) => { if (g.anulado || !g.pagado || (pid && g.inmuebleId !== pid) || (g.categoria === 'financiacion') !== !!fin) return t;
       const m = g.pagado.fecha.slice(0, 7); return m < a || m > b ? t : t + g.importe; }, 0);
     const recuperado = (a, b, pid) => s.reembolsos.reduce((t, r) => { if (r.anulado) return t; const m = r.fecha.slice(0, 7); if (m < a || m > b) return t;
@@ -699,7 +719,7 @@
       claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {} };
   }
 
-  return { VIVIENDA, LEY_VIVIENDA, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
+  return { VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
     puedeCrearInmueble, crearInmueble, editarInmueble, archivarInmueble, eliminarInmueble, crearInquilino, editarInquilino, archivarInquilino, eliminarInquilino,
     crearContrato, editarContrato, revisarRenta, finalizarContrato, renovarContrato, eliminarContrato, situacionContrato, rentaEn, rentaActual, contratoEn, finEfectivo,
     generarCargos, pagadoDe, estadoCargo, registrarPago, anularPago, anularCargo, restaurarCargo, ajustarCargo, cargos,

@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.6.0';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -369,7 +369,7 @@
     mas() {
       const n = (x) => x.filter((y) => !y.archivado).length;
       return `${sec('Cartera', '', `<div class="lista">${item('#inmuebles', 'casa', 'Inmuebles', `${n(S.inmuebles)} en cartera`)}${item('#inquilinos', 'persona', 'Inquilinos', `${n(S.inquilinos)} en total`)}</div>`)}
-        ${sec('Cuentas e informes', '', `<div class="lista">${item('#panel', 'grafico', 'Panel', 'Ocupación, deudas y rentabilidad')}${item('#informes', 'informe', 'Informes y listados', 'Todo en Excel o PDF, con filtros')}${item('#renta', 'renta', 'Informe para la Renta', 'Ingresos y gastos deducibles de cada año')}</div>`)}
+        ${sec('Cuentas e informes', '', `<div class="lista">${item('#panel', 'grafico', 'Panel', 'Ocupación, deudas y rentabilidad')}${item('#informes', 'informe', 'Informes y listados', 'Todo en Excel o PDF, con filtros')}${item('#renta', 'renta', 'Informe para la Renta', 'Ingresos y gastos deducibles de cada año')}${S.cargos.some((c) => c.base != null) || S.contratos.some((c) => (c.impuesto && c.impuesto !== 'ninguno') || c.retencion) ? item('#impuestos', 'informe', 'Facturas e impuestos', 'IGIC, IVA y retenciones por trimestre') : ''}</div>`)}
         ${sec('Herramientas', '', `<div class="lista">${item('extracto', 'banco', 'Extracto del banco', 'Apunta cobros y recibos domiciliados de una vez')}${item('importarCartera', 'subir', 'Importar desde Excel', 'Inmuebles, inquilinos y contratos')}</div>`)}
         ${sec('La app', '', `<div class="lista">${item('#ajustes', 'ajustes', 'Ajustes y copias', 'Tus datos, mensajes, avisos y copia de seguridad')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}
           ${item('pro', 'estrella', S.pro ? 'Versión completa activada' : 'Versión completa', S.pro ? 'Inmuebles sin límite' : 'Gratis con un inmueble; pago único para añadir más')}${item('ayuda', 'ayuda', 'Ayuda', 'Cómo funciona y qué significan los estados')}</div>`)}
@@ -444,6 +444,21 @@
         <div class="form-sec">Contraste</div><div class="segm">${b('contraste', false, 'Normal')}${b('contraste', true, 'Alto')}</div>
         <p class="sub">El color elegido también se usa en los recibos y en los informes en PDF.</p>`;
     },
+    impuestos() {
+      if (!V.impAnio) { const m = +HOY.slice(5, 7); V.impTri = Math.ceil(m / 3) - 1 || 4; V.impAnio = +HOY.slice(0, 4) - (m <= 3 ? 1 : 0); }
+      const r = MA.resumenTrimestre(S, V.impAnio, V.impTri, HOY), nombres = [...new Set(r.tipos.map((x) => x.impuesto))];
+      const modelo = nombres.includes('IGIC') && nombres.includes('IVA') ? 'modelos 420 y 303' : nombres.includes('IVA') ? 'modelo 303' : 'modelo 420';
+      return `<div class="nav"><button data-a="triImp" data-d="-1" aria-label="Trimestre anterior">‹</button><b>${V.impTri}.º ${h(Idioma.t('trimestre'))} ${V.impAnio}</b><button data-a="triImp" data-d="1" aria-label="Trimestre siguiente">›</button></div>
+        ${r.filas.length ? `<div class="kpis"><div class="kpi"><span>Base imponible</span><b>${eur(r.base)}</b></div><div class="kpi"><span>${h(nombres.join(' + ') || 'Impuesto')} repercutido</span><b>${eur(r.cuota)}</b></div>
+          <div class="kpi"><span>Retenciones</span><b>${eur(r.ret)}</b></div><div class="kpi"><span>Cobrado</span><b>${eur(r.cobrado)}</b></div></div>
+          ${r.tipos.length ? `<div class="nota"><b>${h(Idioma.t(modelo[0].toUpperCase() + modelo.slice(1)))}</b>${r.tipos.map((x) => `<br>${h(x.impuesto)} ${h(MA.pctTexto(x.pct))}: ${h(Idioma.t('base'))} ${eur(x.base)}, ${h(Idioma.t('cuota'))} ${eur(x.cuota)}`).join('')}</div>` : ''}
+          ${r.ret ? `<p class="sub">Las retenciones las ingresa el inquilino (modelo 115). Tú las restas en la Renta o en tus pagos fraccionados.</p>` : ''}
+          ${r.sinNumero ? `<div class="acc esp"><button class="btn pri" data-a="emitirFacturas">${h(Idioma.t(r.sinNumero === 1 ? 'Numerar 1 factura pendiente' : `Numerar ${r.sinNumero} facturas pendientes`))}</button></div>` : ''}
+          <div class="acc"><button class="btn" data-a="impXlsx">Excel</button><button class="btn" data-a="impPdf">PDF</button></div>
+          <h3>Facturas</h3><div class="filas">${r.filas.map((f) => `<button class="fila-l" data-a="cobro" data-id="${f.id}"><span><b data-notr>${h(f.inquilino)}</b><br><span class="sub">${f.factura ? `<span data-notr>${h(f.factura)}</span> · ` : ''}${fmes(f.periodo)}</span></span><span class="der"><span class="imp">${eur(f.total)}</span><span class="sub">${h(Idioma.t('base'))} ${eur(f.base)}</span></span></button>`).join('')}</div>`
+          : vacio('Sin facturas este trimestre', 'Las facturas salen de los contratos con IGIC, IVA o retención. Indícalo en el contrato (Editar › Factura).')}
+        <p class="sub esp">Resumen orientativo: revísalo con tu asesor antes de presentar.</p>`;
+    },
     informes() {
       const F = V.filtros, op = (l, sel) => l.map((x) => `<option value="${x.id}"${sel === x.id ? ' selected' : ''}>${h(x.nombre)}</option>`).join('');
       const inf = (k, txt, sub, pdf) => `<div class="tar"><div class="tit">${h(txt)}</div>${sub ? `<div class="sub">${h(sub)}</div>` : ''}
@@ -455,7 +470,7 @@
           <label class="f">Hasta<input type="date" data-filtro="hasta" value="${F.hasta || ''}"></label></div>
           <p class="sub">Las fechas se aplican a recibos, cobros, gastos, cuadro de hipoteca e historial.</p></div>
         <div class="acc esp"><button class="btn pri ancho" data-a="libroCompleto">Todo en un Excel (una hoja por listado)</button></div>
-        ${sec('Cobros y deudas', '', inf('recibos', 'Recibos de alquiler', 'Cada mes, lo cobrado y lo pendiente') + inf('cobros', 'Cobros recibidos', 'Cada pago, con su fecha y método') + inf('deudas', 'Deudas por inquilino', 'Quién debe, cuánto y desde cuándo')
+        ${sec('Cobros y deudas', '', inf('recibos', 'Recibos de alquiler', 'Cada mes, lo cobrado y lo pendiente') + inf('cobros', 'Cobros recibidos', 'Cada pago, con su fecha y método') + inf('deudas', 'Deudas por inquilino', 'Quién debe, cuánto y desde cuándo') + (S.cargos.some((c) => c.base != null) ? inf('facturas', 'Facturas', 'Base, impuesto, retención y total de cada factura') : '')
           + `<div class="tar"><div class="tit">Extracto de un inquilino</div><div class="sub">Lo que ha pagado y lo que debe, para enviárselo. Elige el inquilino arriba.</div><div class="acc"><button class="btn peq" data-a="extractoInq">PDF</button></div></div>`)}
         ${sec('Cartera', '', inf('inmuebles', 'Inmuebles') + inf('inquilinos', 'Inquilinos', 'Datos de contacto') + inf('contratos', 'Contratos', 'Fechas, renta, fianza y estado'))}
         ${sec('Gastos y finanzas', '', inf('gastos', 'Gastos') + inf('fianzas', 'Fianzas', 'Entregas, devoluciones y depósitos') + inf('hipotecas', 'Cuadro de hipoteca', 'Cuotas, intereses y capital pendiente') + inf('rentabilidad', 'Rentabilidad por inmueble', 'Últimos 12 meses'))}
@@ -463,14 +478,14 @@
           + `<div class="tar"><div class="tit">Informe para la Renta</div><div class="sub">Por año, en PDF o Excel.</div><div class="acc"><a class="btn peq" href="#renta">Abrir</a></div></div>`)}`;
     },
   };
-  const TITULOS = { inicio: 'Mis alquileres', cobros: 'Cobros', gastos: 'Gastos', contratos: 'Contratos', mas: 'Más', inmuebles: 'Inmuebles', inquilinos: 'Inquilinos', panel: 'Panel', ajustes: 'Ajustes y copias', renta: 'Informe para la Renta', informes: 'Informes y listados', apariencia: 'Apariencia e idioma' };
+  const TITULOS = { inicio: 'Mis alquileres', cobros: 'Cobros', gastos: 'Gastos', contratos: 'Contratos', mas: 'Más', inmuebles: 'Inmuebles', inquilinos: 'Inquilinos', panel: 'Panel', ajustes: 'Ajustes y copias', renta: 'Informe para la Renta', informes: 'Informes y listados', apariencia: 'Apariencia e idioma', impuestos: 'Facturas e impuestos' };
   const vistaActual = () => { const v = location.hash.slice(1); return VISTAS[v] ? v : 'inicio'; };
   function pinta() {
     const v = vistaActual(), el = $('#vista');
     $('#titulo').textContent = TITULOS[v]; $('#subtitulo').textContent = v === 'inicio' ? `${+HOY.slice(8)} de ${fmes(HOY.slice(0, 7))}` : '';
     const y = el.scrollTop; el.innerHTML = VISTAS[v](); el.scrollTop = y;
     for (const i of el.querySelectorAll('[data-w]')) i.style.width = Math.min(100, +i.dataset.w) + '%';
-    const sub = ['inmuebles', 'inquilinos', 'panel', 'ajustes', 'renta', 'informes', 'apariencia'].includes(v), principal = sub ? 'mas' : v;
+    const sub = ['inmuebles', 'inquilinos', 'panel', 'ajustes', 'renta', 'informes', 'apariencia', 'impuestos'].includes(v), principal = sub ? 'mas' : v;
     $('#atras').hidden = !sub;
     for (const b of el.querySelectorAll('[data-color]')) b.style.background = b.dataset.color;
     for (const a of document.querySelectorAll('.barra a')) { const on = a.dataset.v === principal; a.classList.toggle('on', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
@@ -527,7 +542,7 @@
       pie: p.hipoteca ? `<div class="acc"><button class="btn rojo" data-a="quitarHipoteca" data-id="${i}">Quitar la hipoteca</button></div>` : '<p class="sub">Las cuotas anteriores a hoy se apuntan como pagadas y marcadas «estimado».</p>' });
   }
   const D_INQUILINO = [{ k: 'nombre', e: 'Nombre y apellidos', req: 1 }, { k: 'telefono', e: 'Teléfono (para WhatsApp)', t: 'tel' },
-    { k: 'idioma', e: 'Idioma de sus mensajes y recibos', t: 'select', op: [['', 'El de la app'], ...Object.entries(Idioma.IDIOMAS)] }, { k: 'dni', e: 'DNI / NIE' }, { k: 'email', e: 'Correo', t: 'email' }, { k: 'domicilio', e: 'Domicilio' }, { k: 'notas', e: 'Notas', t: 'area' }];
+    { k: 'idioma', e: 'Idioma de sus mensajes y recibos', t: 'select', op: [['', 'El de la app'], ...Object.entries(Idioma.IDIOMAS)] }, { k: 'dni', e: 'DNI / NIE', ayuda: 'Si es una empresa, su CIF y en el nombre la razón social: salen en las facturas.' }, { k: 'email', e: 'Correo', t: 'email' }, { k: 'domicilio', e: 'Domicilio' }, { k: 'notas', e: 'Notas', t: 'area' }];
   function formInquilino(q) {
     formulario({ titulo: q ? 'Editar inquilino' : 'Nuevo inquilino', defs: D_INQUILINO, valores: q, alGuardar: (d) => (q ? MA.editarInquilino(S, q.id, d) : MA.crearInquilino(S, d)),
       pie: q ? `<div class="acc">${q.telefono ? `<button class="btn" data-a="chat" data-id="${q.id}">Abrir WhatsApp</button>` : ''}<button class="btn" data-a="archivarInquilino" data-id="${q.id}">${q.archivado ? 'Recuperar' : 'Archivar'}</button><button class="btn rojo" data-a="eliminarInquilino" data-id="${q.id}">Eliminar</button></div>` : '' });
@@ -536,13 +551,15 @@
   function formContrato(inmuebleId) {
     if (!opInmuebles().length) return toast('Añade antes un inmueble');
     const qs = S.inquilinos.filter((q) => !q.archivado).map((q) => [q.id, q.nombre]);
-    formulario({ titulo: 'Nuevo contrato', boton: 'Crear contrato', valores: { inmuebleId, inicio: HOY, diaCobro: 1, avisoMeses: 1, actualizacion: 'auto', inquilinoId: qs.length ? qs[0][0] : 'nuevo' },
+    formulario({ titulo: 'Nuevo contrato', boton: 'Crear contrato', valores: { inmuebleId, inicio: HOY, diaCobro: 1, avisoMeses: 1, actualizacion: 'auto', impuesto: 'ninguno', inquilinoId: qs.length ? qs[0][0] : 'nuevo' },
       defs: [{ k: 'inmuebleId', e: 'Inmueble', t: 'select', op: opInmuebles() }, { k: 'inquilinoId', e: 'Inquilino', t: 'select', op: [...qs, ['nuevo', '+ Nuevo inquilino…']] },
         { html: '<div id="nuevoInq">' }, { k: 'nNombre', e: 'Nombre del inquilino' }, { k: 'nTelefono', e: 'Teléfono (para WhatsApp)', t: 'tel' }, { html: '</div>' },
         { k: 'importe', e: 'Renta mensual', t: 'dinero', req: 1 }, { html: '<div class="dos">' }, { k: 'inicio', e: 'Desde', t: 'date', req: 1 }, { k: 'diaCobro', e: 'Día de cobro', t: 'num' }, { html: '</div>' },
         { det: 'Más opciones: fin, fianza, avisos y actualización' }, { k: 'fin', e: 'Fecha de fin (vacía si no tiene)', t: 'date' },
         { k: 'fianza', e: 'Fianza acordada', t: 'dinero' }, { k: 'avisoMeses', e: 'Avisar del vencimiento con (meses)', t: 'num' },
         { k: 'actualizacion', e: 'Actualización anual de la renta', t: 'select', op: D_ACTUALIZACION, ayuda: 'Vivienda firmada desde el 26/05/2023: IRAV. Antes, o para otros usos: lo que diga el contrato (normalmente IPC).' },
+        { k: 'impuesto', e: 'Impuesto de la renta', t: 'select', op: [['ninguno', 'Sin impuesto (vivienda, o exento)'], ['igic', 'IGIC (Canarias)'], ['iva', 'IVA (península y Baleares)']], ayuda: 'Solo para locales, oficinas o naves: IGIC 7 % en Canarias, IVA 21 % en la península.' },
+        { k: 'retencion', t: 'check', e: 'El inquilino me practica retención (19 %)', ayuda: 'Habitual si el inquilino es una empresa o un autónomo.' },
         { k: 'historicoCobrado', t: 'check', e: 'Dar por cobrados los meses anteriores a este', ayuda: 'Solo si el contrato empezó antes de usar la app. Quedarán marcados como estimados.' }, { k: 'notas', e: 'Notas', t: 'area' }, { detFin: 1 }],
       alMontar: (f) => { const ver = () => { $('#nuevoInq', f).hidden = f.elements.inquilinoId.value !== 'nuevo'; }; f.elements.inquilinoId.onchange = ver; ver(); },
       despues: (ct) => { if (ct && ct.fianza) toast('Contrato creado. Cuando cobres la fianza, apúntala en el contrato.'); },
@@ -583,14 +600,16 @@
     const c = MA.cargos(S, HOY, (x) => x.id === i)[0]; if (!c) return cerrar();
     const ps = S.pagos.filter((p) => p.cargoId === i).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id - b.id), vivo = c.estado !== 'pagado' && c.estado !== 'anulado';
     hoja(`${c.inquilino} · ${fmes(c.periodo)}`, `<p>${chip(E_CARGO, c.estado)} <span class="sub">${h(c.inmueble)} · vence ${fecha(c.vence)}</span></p>
-      <div class="kpis"><div class="kpi"><span>Renta</span><b>${eur(c.importe)}</b></div><div class="kpi"><span>Pendiente</span><b>${eur(c.pendiente)}</b></div></div>
+      <div class="kpis"><div class="kpi"><span>${c.base != null ? 'Total a pagar' : 'Renta'}</span><b>${eur(c.importe)}</b></div><div class="kpi"><span>Pendiente</span><b>${eur(c.pendiente)}</b></div></div>
+      ${c.base != null ? `<table class="t esp"><tr><td>Base imponible</td><td>${eur(c.base)}</td></tr>${c.impuesto ? `<tr><td>${h(MA.IMPUESTOS[c.impuesto].nombre)} ${h(MA.pctTexto(c.pct))}</td><td>${eur(c.cuota)}</td></tr>` : ''}${c.ret ? `<tr><td>${h(Idioma.t('Retención IRPF'))} ${MA.RETENCION} %</td><td>- ${eur(c.ret)}</td></tr>` : ''}<tr><td><b>Total a pagar</b></td><td><b>${eur(c.importe)}</b></td></tr></table>
+        ${c.factura ? `<p class="sub">${h(Idioma.t('Factura'))} <b data-notr>${h(c.factura.numero)}</b> · ${fecha(c.factura.fecha)}</p>` : ''}` : ''}
       ${c.anulado ? `<p class="nota">Anulado el ${fecha(c.anulado.fecha)}: ${h(c.anulado.motivo)}</p>` : ''}
       ${vivo ? `<h3>Registrar un cobro</h3><form id="fpago" novalidate><div class="error" hidden role="alert"></div><div class="dos">${campos([{ k: 'importe', e: 'Importe', t: 'dinero' }, { k: 'fecha', e: 'Fecha', t: 'date' }], { importe: c.pendiente, fecha: HOY })}</div>
         ${campos([{ k: 'metodo', e: 'Método', t: 'select', op: ['Transferencia', 'Bizum', 'Efectivo', 'Domiciliación', 'Otro'].map((x) => [x, x]) }, { k: 'repartir', t: 'check', e: 'Si sobra, aplicarlo a otros recibos pendientes de este contrato' }], { metodo: c.metodo || 'Transferencia' })}
         <button class="btn pri ancho" type="submit">Registrar cobro</button></form>` : ''}
       ${ps.length ? `<h3>Cobros de este recibo</h3>${ps.map((p) => `<div class="tar${p.anulado ? ' apagada' : ''}"><div class="fila"><span>${fecha(p.fecha)} · ${h(p.metodo || '—')}${p.origen === 'estimado' ? ' · estimado' : ''}</span><span class="imp">${eur(p.importe)}</span></div>
         ${p.anulado ? `<div class="sub">Anulado el ${fecha(p.anulado.fecha)}: ${h(p.anulado.motivo)}</div>` : `<div class="acc"><button class="btn peq rojo" data-a="anularPago" data-id="${p.id}" data-c="${i}">Anular este cobro</button></div>`}</div>`).join('')}` : ''}
-      <h3>Más</h3><div class="acc">${vivo ? `<button class="btn" data-a="avisar" data-id="${i}">Avisar al inquilino</button>` : ''}${c.pagado ? `<button class="btn pri" data-a="reciboPdf" data-id="${i}">Recibo en PDF</button><button class="btn" data-a="recibo" data-id="${i}">Confirmar por WhatsApp</button>` : ''}
+      <h3>Más</h3><div class="acc">${c.base != null && !c.anulado ? `<button class="btn pri" data-a="facturaPdf" data-id="${i}">Factura en PDF</button>` : ''}${vivo ? `<button class="btn" data-a="avisar" data-id="${i}">Avisar al inquilino</button>` : ''}${c.pagado ? `<button class="btn pri" data-a="reciboPdf" data-id="${i}">Recibo en PDF</button><button class="btn" data-a="recibo" data-id="${i}">Confirmar por WhatsApp</button>` : ''}
         ${!c.anulado ? `<button class="btn" data-a="ajustarCargo" data-id="${i}">Cambiar el importe</button>` : ''}${c.anulado ? `<button class="btn" data-a="restaurarCargo" data-id="${i}">Recuperar el recibo</button>` : !c.pagado ? `<button class="btn rojo" data-a="anularCargo" data-id="${i}">Anular el recibo</button>` : ''}</div>`, (el) => {
       const f = $('#fpago', el); if (!f) return; const k = clave(); let enviando = false;
       f.onsubmit = (e) => { e.preventDefault(); if (enviando) return; enviando = true;
@@ -719,8 +738,10 @@
       { h: 'Para la Renta' }, { k: 'uso', e: 'Uso', t: 'select', op: [['vivienda', 'Vivienda del inquilino (tiene reducción)'], ['otro', 'Otro uso: garaje, local, temporada…']] },
       { k: 'firma', e: 'Fecha de firma (si es distinta del inicio)', t: 'date' },
       { k: 'reduccion', e: 'Reducción en el IRPF', t: 'select', op: [['', 'Automática (60 % antes del 26/05/2023, 50 % después)'], [0, 'Sin reducción'], [50, '50 %'], [60, '60 %'], [70, '70 %'], [90, '90 %']] },
-      { k: 'retencion', t: 'check', e: 'El inquilino me practica retención (19 %)', ayuda: 'Habitual cuando alquilas un local a una empresa o autónomo.' }, { k: 'notas', e: 'Notas', t: 'area' }],
-      alGuardar: (d) => MA.editarContrato(S, i, { ...d, fin: d.fin || null, fianza: d.fianza || 0, firma: d.firma || null }, HOY), despues: () => fichaContrato(i), pie: '<p class="sub">Para cambiar la renta usa «Cambiar la renta»: así queda guardado desde qué mes se aplica.</p>' }); },
+      { h: 'Factura (locales, oficinas, naves…)' }, { k: 'impuesto', e: 'Impuesto de la renta', t: 'select', op: [['ninguno', 'Sin impuesto (vivienda, o exento)'], ['igic', 'IGIC (Canarias)'], ['iva', 'IVA (península y Baleares)']], ayuda: 'El alquiler de vivienda está exento. El de locales lleva IGIC en Canarias (7 %) o IVA en la península (21 %).' },
+      { k: 'impuestoPct', e: 'Tipo (%) si no es el general', t: 'num' },
+      { k: 'retencion', t: 'check', e: 'El inquilino me practica retención (19 %)', ayuda: 'Habitual cuando alquilas un local a una empresa o autónomo. Con impuesto o retención, cada mes se hace una factura y el recibo es lo que el inquilino paga de verdad.' }, { k: 'notas', e: 'Notas', t: 'area' }],
+      alGuardar: (d) => MA.editarContrato(S, i, { ...d, fin: d.fin || null, fianza: d.fianza || 0, firma: d.firma || null, impuesto: d.impuesto || 'ninguno', impuestoPct: d.impuestoPct }, HOY), despues: () => fichaContrato(i), pie: '<p class="sub">Para cambiar la renta usa «Cambiar la renta»: así queda guardado desde qué mes se aplica.</p>' }); },
     revisar(i) { const ct = por(S.contratos, i); formulario({ titulo: 'Cambiar la renta', valores: { desde: MA.mesMas(HOY.slice(0, 7), 1), importe: MA.rentaActual(ct, HOY) }, defs: [{ k: 'importe', e: 'Nueva renta mensual', t: 'dinero', req: 1 }, { k: 'desde', e: 'Se aplica desde el mes', t: 'month', req: 1 }],
       alGuardar: (d) => MA.revisarRenta(S, i, d, HOY), despues: () => fichaContrato(i), pie: '<p class="sub">Los recibos ya cobrados, total o parcialmente, conservan su importe.</p>' }); },
     renovar(i) { const ct = por(S.contratos, i), f = MA.finEfectivo(ct); formulario({ titulo: 'Renovar contrato', boton: 'Renovar', valores: { fin: f ? MA.masDias(MA.masMeses(MA.masDias(f, 1), 12), -1) : '', importe: MA.rentaActual(ct, HOY) },
@@ -743,7 +764,7 @@
     anularPago(i, el) { confirma('Anular este cobro', 'El cobro dejará de contar, pero seguirá en el historial como anulado.', 'Anular', (m) => haz(() => MA.anularPago(S, i, m, HOY), () => fichaCobro(+el.dataset.c)), true); },
     anularCargo(i) { confirma('Anular el recibo', 'Úsalo si ese mes no corresponde cobrar. Podrás recuperarlo después.', 'Anular', (m) => haz(() => MA.anularCargo(S, i, m, HOY), () => fichaCobro(i)), true); },
     restaurarCargo(i) { haz(() => MA.restaurarCargo(S, i, HOY), () => fichaCobro(i)); },
-    ajustarCargo(i) { const c = por(S.cargos, i); formulario({ titulo: 'Cambiar el importe del recibo', valores: { importe: c.importe }, defs: [{ k: 'importe', e: 'Importe de este mes', t: 'dinero', req: 1 }], alGuardar: (d) => MA.ajustarCargo(S, i, d.importe == null ? -1 : d.importe, HOY), despues: () => fichaCobro(i),
+    ajustarCargo(i) { const c = por(S.cargos, i); formulario({ titulo: 'Cambiar el importe del recibo', valores: { importe: c.base != null ? c.base : c.importe }, defs: [{ k: 'importe', e: c.base != null ? 'Base imponible de este mes' : 'Importe de este mes', t: 'dinero', req: 1 }], alGuardar: (d) => MA.ajustarCargo(S, i, d.importe == null ? -1 : d.importe, HOY), despues: () => fichaCobro(i),
       pie: '<p class="sub">Solo cambia este recibo. Para cambiar la renta de aquí en adelante, usa «Cambiar la renta» en el contrato.</p>' }); },
     nuevoGasto() { if (!opInmuebles().length) return toast('Añade antes un inmueble'); formGasto(); }, gasto: fichaGasto,
     gastoPagado(i) { haz(() => MA.confirmarGasto(S, i, {}, HOY), () => toast('Gasto marcado como pagado', 'Deshacer', () => haz(() => MA.desconfirmarGasto(S, i, 'Marcado por error', HOY)))); },
@@ -869,6 +890,16 @@
       r.mes = Idioma.mes(r.mes, l); if (l !== 'es') r.letras = '';
       Archivos.compartirBytes(`${Idioma.tr(l)('recibo')}-${r.numero}.pdf`, PDF.recibo(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
         .catch(() => toast('No se ha enviado el recibo')); if (!S.ajustes.dni && !S.ajustes.propietario) toast('Pon tu nombre y DNI en Ajustes › Mis datos para que salgan en el recibo'); } catch (e) { fallo(e); } },
+    facturaPdf(i) { try { const r = MA.datosFactura(S, i, HOY); guardar(); const c = MA.cargos(S, HOY, (x) => x.id === i)[0], q = por(S.inquilinos, c.inquilinoId), l = langDe(q);
+      r.mes = Idioma.mes(r.mes, l);
+      Archivos.compartirBytes(`${Idioma.tr(l)('factura')}-${r.numero}.pdf`, PDF.factura(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
+        .catch(() => toast('No se ha podido crear el PDF')); if (r.avisos.length) toast(r.avisos[0]); pinta(); } catch (e) { fallo(e); } },
+    triImp(_, el) { let a = V.impAnio, q = V.impTri + Number(el.dataset.d); if (q < 1) { q = 4; a--; } if (q > 4) { q = 1; a++; } V.impAnio = a; V.impTri = q; pinta(); },
+    emitirFacturas() { const r = MA.resumenTrimestre(S, V.impAnio, V.impTri, HOY); let n = 0; for (const f of r.filas) if (!f.factura) { MA.datosFactura(S, f.id, HOY); n++; } guardar(); pinta(); toast(n === 1 ? 'Emitida 1 factura' : `Emitidas ${n} facturas`); },
+    impXlsx() { const tab = Exportar.crear(S, 'facturas', { desde: `${V.impAnio}-${String((V.impTri - 1) * 3 + 1).padStart(2, '0')}-01`, hasta: MA.masDias(MA.masMeses(`${V.impAnio}-${String(V.impTri * 3).padStart(2, '0')}-01`, 1), -1) }, HOY);
+      Archivos.compartirBytes(`facturas-${V.impAnio}-T${V.impTri}.xlsx`, Exportar.xlsx([tab]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').catch(() => toast('No se ha podido exportar')); },
+    impPdf() { const tab = Exportar.crear(S, 'facturas', { desde: `${V.impAnio}-${String((V.impTri - 1) * 3 + 1).padStart(2, '0')}-01`, hasta: MA.masDias(MA.masMeses(`${V.impAnio}-${String(V.impTri * 3).padStart(2, '0')}-01`, 1), -1) }, HOY);
+      Archivos.compartirBytes(`facturas-${V.impAnio}-T${V.impTri}.pdf`, PDF.listado(tab, { t: Idioma.t, acento: leerAp().acento, hoy: HOY, propietario: S.ajustes.propietario }), 'application/pdf').catch(() => toast('No se ha podido crear el PDF')); },
     // 4. Extracto del banco
     extracto() { hoja('Extracto del banco', `<p>Descarga desde la web o la app de tu banco los movimientos de la cuenta donde cobras, en <b>Excel (.xlsx)</b> o <b>CSV</b>, y elígelo aquí. La app buscará qué transferencias y Bizum corresponden a cada recibo y qué cargos son tus gastos domiciliados.</p>
       <label class="f">Archivo del extracto<input type="file" id="fext" accept=".csv,.xlsx,.txt,.n43,.aeb,.q43,.c43,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><p class="sub">Nada se apunta hasta que lo revises y confirmes. Los movimientos ya importados se reconocen y no se duplican.</p>`, (el) => {

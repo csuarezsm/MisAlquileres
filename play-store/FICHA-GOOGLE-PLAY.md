@@ -31,6 +31,11 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • Importa el extracto del banco (Norma 43, Excel o CSV) y la app casa cada transferencia o Bizum con su recibo
 • Los cobros no se borran: se anulan y quedan en el historial
 
+🏪 LOCALES, OFICINAS Y NAVES
+• Factura mensual numerada con IGIC (Canarias) o IVA y retención del 19 %
+• El recibo es lo que el inquilino paga de verdad: base + impuesto − retención
+• Resumen trimestral para los modelos 420 o 303, en Excel o PDF
+
 🧾 DECLARACIÓN DE LA RENTA
 • Informe por inmueble: ingresos, gastos deducibles, intereses, amortización, reducción e imputación de días vacíos
 • En PDF o Excel, listo para trasladar a Renta Web o a tu asesor
