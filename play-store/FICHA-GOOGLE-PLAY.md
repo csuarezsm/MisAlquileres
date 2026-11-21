@@ -4,9 +4,9 @@ Paquete: `com.itcanarias.misalquileres` · Categoría propuesta: **Empresa** · 
 
 ## Textos
 
-**Nombre (máx. 30):** Mis alquileres: cobros y gastos
+**Nombre (máx. 30):** Mis alquileres: cobros, gastos
 
-**Descripción breve (máx. 80):** Controla tus alquileres: contratos, cobros mensuales, gastos y avisos.
+**Descripción breve (máx. 80):** Controla tus alquileres: contratos, cobros, facturas, gastos y avisos.
 
 **Descripción completa:**
 
@@ -72,6 +72,7 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 🔒 TUS DATOS, EN TU MÓVIL
 • Sin cuentas, sin publicidad y sin enviar nada a nuestros servidores
 • Bloqueo con la huella o el PIN del móvil
+• Widget en la pantalla de inicio con lo que te deben
 • Copias de seguridad automáticas (cada día, semana o mes) en el móvil y, si quieres, en tu Google Drive, con los documentos y fotos
 
 Empieza en un minuto con el alta rápida, importa tus inmuebles desde Excel o pruébala antes con datos de ejemplo.
@@ -84,7 +85,7 @@ La app prepara los mensajes y abre WhatsApp: el envío lo haces tú. Las cifras 
 
 - `icono-512.png` — icono de la ficha
 - `grafico-1024x500.png` — gráfico de funciones
-- `capturas/` — capturas de móvil 1080×1920 (se regeneran con `npm run capturas`)
+- `capturas/<idioma>/` — capturas de móvil 1080×1920 en español, inglés, alemán, francés e italiano (se regeneran con `npm run capturas`)
 
 ## Producto de pago
 

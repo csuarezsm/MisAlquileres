@@ -23,6 +23,8 @@ jobs:
           grep -q "APP_VERSION = '$V'" www/app.js || { echo "APP_VERSION de www/app.js no es $V"; exit 1; }
           grep -q "misalquileres-v$V'" www/sw.js || { echo "CACHE de www/sw.js no es $V"; exit 1; }
           echo "VERSION=$V" >> $GITHUB_ENV
+      - name: Comprobar que la web para iPhone (docs/app) está al día
+        run: diff -r www docs/app || (echo "docs/app no coincide con www: ejecuta npm run web" && exit 1)
       - name: Pruebas (si fallan, no se compila)
         run: |
           npx playwright install --with-deps chromium

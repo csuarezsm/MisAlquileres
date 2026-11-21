@@ -178,6 +178,14 @@
     proteger(activo) { if (NBloq) NBloq.proteger({ activo: !!activo }).catch(() => {}); },
   };
 
+  // ---------- Widget de la pantalla de inicio (solo Android) ----------
+  const NWidget = NATIVO ? (P.Widget || (C.registerPlugin ? C.registerPlugin('Widget') : null)) : null;
+  let ultimoWidget = '';
+  const Widget = {
+    disponible: !!NWidget,
+    actualizar(d) { if (!NWidget) return; const k = JSON.stringify(d); if (k === ultimoWidget) return; ultimoWidget = k; NWidget.actualizar(d).catch(() => { ultimoWidget = ''; }); },
+  };
+
   // ---------- Avisos del móvil (notificaciones locales, sin servidor) ----------
   const Avisos = {
     disponible: NATIVO && !!P.LocalNotifications,
@@ -230,7 +238,7 @@
     },
   };
 
-  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo,
+  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget,
     // En la app de Android, navegar al enlace hace que Android lo abra en su app (WhatsApp); en el navegador, pestaña nueva
     abrir(url) { if (NATIVO) window.location.href = url; else window.open(url, '_blank'); },
     alVolver(fn) { document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); }); } };

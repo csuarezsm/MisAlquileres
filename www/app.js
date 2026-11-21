@@ -1,8 +1,8 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.7.0';
-  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, NATIVO } = window.Plataforma;
+  const APP_VERSION = '1.8.0';
+  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const eur = MA.euros;
@@ -48,7 +48,7 @@
     tGuardar = setTimeout(async () => {
       const txt = MA.exportar(S);
       await Almacen.guardar(txt);
-      copiaProgramada();
+      copiaProgramada(); actualizarWidget();
       if (Avisos.disponible) Avisos.programar(S.ajustes.avisos ? [...MA.proximosAvisos(S, HOY, 60), ...avisoCopia()] : [], S.ajustes.horaAvisos || 9);
     }, 300);
   }
@@ -136,6 +136,18 @@
       garantia: o.garantia || 0, actualizacion: ct.actualizacion || 'ipc', actualizacionPct: ct.actualizacionPct, gastos, impuesto: ct.impuesto && ct.impuesto !== 'ninguno' ? { nombre: MA.IMPUESTOS[ct.impuesto].nombre, pct: ct.impuestoPct != null ? ct.impuestoPct : MA.IMPUESTOS[ct.impuesto].pct } : null,
       retencion: !!ct.retencion, amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
   }
+  // Widget: lo que te deben y lo cobrado este mes. Con el bloqueo activado no enseña importes.
+  function actualizarWidget() {
+    if (!Widget.disponible) return;
+    try {
+      if (leerBloq().activo) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Bloqueada'), linea2: Idioma.t('Abre la app para ver el resumen') });
+      if (!S.contratos.length) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Abre la app'), linea2: Idioma.t('Empieza en un minuto') });
+      const m = MA.panel(S, HOY), d = deudas().reduce((t, x) => t + x.total, 0);
+      Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: d ? Idioma.t(`Te deben ${eur(d)}`) : Idioma.t('Todo cobrado'),
+        linea2: Idioma.t(`Cobrado en ${fmes(m.mes)}: ${eur(m.mesActual.cobrado)} de ${eur(m.mesActual.esperado)}`) });
+    } catch (e) { /* el widget es opcional */ }
+  }
+  const esIOSNavegador = () => { try { return !NATIVO && /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone && !matchMedia('(display-mode: standalone)').matches && localStorage.getItem('ma.ios') !== '1'; } catch (e) { return false; } };
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
 
   // ---------- Avisos en pantalla ----------
@@ -347,7 +359,7 @@
       const vencen = S.contratos.filter((ct) => ['por_vencer', 'vencido'].includes(MA.situacionContrato(ct, HOY)));
       const gPte = gs.filter((g) => !g.pagado && g.fecha < finMes).reverse(), gCob = gs.filter((g) => g.porCobrar > 0 && g.pagado);
       const m = k.mesActual, tareas = MA.avisosApp(S, HOY).filter((x) => /^(actualizacion|fianza_|copia)/.test(x.tipo));
-      return `${S.ejemplo ? `<div class="nota esp">Estás viendo datos de ejemplo. Cuando quieras, bórralos y empieza con los tuyos.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Borrar el ejemplo y empezar</button></div></div>` : ''}<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
+      return `${esIOSNavegador() ? `<div class="nota esp">En iPhone, pulsa <b>Compartir</b> y <b>Añadir a pantalla de inicio</b>, y ábrela siempre desde ese icono: así funciona sin conexión y no se borran tus datos.<div class="acc"><button class="btn txt peq" data-a="ocultarIOS">Entendido</button></div></div>` : ''}${S.ejemplo ? `<div class="nota esp">Estás viendo datos de ejemplo. Cuando quieras, bórralos y empieza con los tuyos.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Borrar el ejemplo y empezar</button></div></div>` : ''}<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
           <div class="barra-mes"><i data-w="${m.porcentaje || 0}"></i></div>
           <div class="pie"><span>Por cobrar <b>${eur(m.pendiente)}</b></span>${k.morosidad.deuda ? `<span>Atrasos <b>${eur(k.morosidad.deuda)}</b></span>` : ''}<span>Ocupación <b>${k.cartera.ocupacion == null ? '—' : String(k.cartera.ocupacion).replace('.', ',') + ' %'}</b></span></div></section>
         ${sec('Te deben', ds.length > 1 ? eur(ds.reduce((t, d) => t + d.total, 0)) : '', ds.map(deudaTar).join(''))}
@@ -972,6 +984,7 @@
       r.mes = Idioma.mes(r.mes, l); if (l !== 'es') r.letras = '';
       Archivos.compartirBytes(`${Idioma.tr(l)('recibo')}-${r.numero}.pdf`, PDF.recibo(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
         .catch(() => toast('No se ha enviado el recibo')); if (!S.ajustes.dni && !S.ajustes.propietario) toast('Pon tu nombre y DNI en Ajustes › Mis datos para que salgan en el recibo'); } catch (e) { fallo(e); } },
+    ocultarIOS() { try { localStorage.setItem('ma.ios', '1'); } catch (e) { /* */ } pinta(); },
     acta: fichaActa,
     actaNueva(i, el) { const ct = por(S.contratos, i), p = por(S.inmuebles, ct.inmuebleId) || {}, tipo = el.dataset.t === 'salida' ? 'salida' : 'entrada';
       const previa = tipo === 'salida' ? S.actas.filter((x) => x.contratoId === i && x.tipo === 'entrada').pop() : null;
@@ -1068,10 +1081,11 @@
       const b = MA.crearInmueble(s, { nombre: 'Plaza de garaje 12', tipo: 'Plaza de garaje', direccion: 'Edif. Las Palmeras, sótano' }, H);
       const c = MA.crearInmueble(s, { nombre: 'Trastero 3', tipo: 'Trastero' }, H);
       const qa = MA.crearInquilino(s, { nombre: 'Ana Pérez Gil', telefono: '600111222' }), qb = MA.crearInquilino(s, { nombre: 'Luis Gómez' }), qc = MA.crearInquilino(s, { nombre: 'Marta Cabrera' });
-      MA.crearContrato(s, { inmuebleId: a.id, inquilinoId: qa.id, inicio: m(-14), importe: 75000, fianza: 75000, diaCobro: 1 }, H);
+      const ca = MA.crearContrato(s, { inmuebleId: a.id, inquilinoId: qa.id, inicio: m(-14), importe: 75000, fianza: 75000, diaCobro: 1 }, H);
       MA.crearContrato(s, { inmuebleId: b.id, inquilinoId: qb.id, inicio: m(-6), importe: 6000, diaCobro: 5 }, H);
       MA.crearContrato(s, { inmuebleId: c.id, inquilinoId: qc.id, inicio: m(-3), importe: 4000, diaCobro: 10 }, H);
-      for (const cg of s.cargos) if (cg.periodo < m(-1).slice(0, 7) || cg.contratoId === 2) MA.registrarPago(s, { cargoId: cg.id, importe: cg.importe, fecha: cg.vence > H ? H : cg.vence, metodo: 'Bizum' }, H);
+      // Ana debe los dos últimos meses; los demás van al día
+      MA.generarCargos(s, H); for (const cg of s.cargos) if ((cg.periodo < m(-1).slice(0, 7) || cg.contratoId !== ca.id) && cg.vence <= H) MA.registrarPago(s, { cargoId: cg.id, importe: cg.importe, fecha: cg.vence, metodo: cg.contratoId === ca.id ? 'Transferencia' : 'Bizum' }, H);
       MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'Comunidad', categoria: 'comunidad', periodicidad: 'mensual', importe: 4550, dia: 5, domiciliado: true }, H);
       MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'IBI', categoria: 'impuesto', periodicidad: 'anual', mesInicio: 9, importe: 38000 }, H);
       s.pro = S.pro; S = s; alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Datos de ejemplo cargados');
@@ -1119,6 +1133,7 @@
     Idioma.poner(lg || S.ajustes.idioma || Idioma.delSistema()); S.ajustes.idioma = Idioma.actual;
     await comprobarCompra(); alDia(); pinta(); guardar();
     Avisos.preparar(alPulsarAviso);
+    if (!NATIVO && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     if (!NATIVO && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
     window.__ma = { get S() { return S; }, pinta }; // para las pruebas automáticas
   })();

@@ -1,14 +1,15 @@
 {
   "name": "mis-alquileres",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Mis alquileres: control de alquileres en el móvil (IT Canarias)",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "test": "node --test tests/*.test.cjs && node tests/app.test.mjs",
     "sync": "cap sync android",
-    "capturas": "ANCHO=360 ALTO=640 ESCALA=3 CAPTURAS=play-store/capturas node tests/app.test.mjs",
-    "iconos": "node tools/iconos.mjs"
+    "capturas": "node tools/capturas.mjs",
+    "iconos": "node tools/iconos.mjs",
+    "web": "rm -rf docs/app && cp -r www docs/app"
   },
   "engines": {
     "node": ">=22"

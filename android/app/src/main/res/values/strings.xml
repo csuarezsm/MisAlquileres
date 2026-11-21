@@ -4,4 +4,6 @@
     <string name="title_activity_main">Mis alquileres</string>
     <string name="package_name">com.itcanarias.misalquileres</string>
     <string name="custom_url_scheme">com.itcanarias.misalquileres</string>
+    <string name="widget_abrir">Abre la app</string>
+    <string name="widget_desc">Lo que te deben y lo cobrado este mes</string>
 </resources>
