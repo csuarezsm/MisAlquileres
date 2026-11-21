@@ -81,6 +81,14 @@
       if (d[k] != null && !(esCent(d[k]) && d[k] >= 0)) throw err('IMPORTE', 'Importe no válido');
       p[k] = d[k];
     }
+    if (d.titulares !== undefined) {
+      // Copropiedad: [{ nombre, nif, pct, yo }]; vacío = 100 % del usuario
+      const l = (Array.isArray(d.titulares) ? d.titulares : []).map((x) => ({ nombre: texto(x.nombre), nif: texto(x.nif || ''), pct: Number(x.pct), yo: !!x.yo })).filter((x) => x.yo || x.nombre);
+      if (l.some((x) => !(x.pct > 0 && x.pct <= 100))) throw err('DATOS', 'Cada titular debe tener un porcentaje entre 0 y 100');
+      const suma = Math.round(l.reduce((t, x) => t + x.pct, 0) * 100) / 100;
+      if (l.length > 1 && suma !== 100) throw err('DATOS', `Los porcentajes de los titulares deben sumar 100 (ahora suman ${String(suma).replace('.', ',')})`);
+      p.titulares = l.length > 1 || (l.length === 1 && !l[0].yo) ? l : [];
+    }
     if (d.compraFecha !== undefined) { if (d.compraFecha && !esFecha(d.compraFecha)) throw err('FECHA', 'Fecha de compra no válida'); p.compraFecha = d.compraFecha || null; }
     if (d.porUnidades !== undefined) p.porUnidades = !!d.porUnidades;
     if (d.imputacionPct !== undefined) p.imputacionPct = Number(d.imputacionPct) === 2 ? 2 : 1.1;
@@ -133,6 +141,16 @@
   function contratoEn(s, inmuebleId, fecha) {
     return s.contratos.filter((c) => c.inmuebleId === inmuebleId && c.inicio <= fecha && (!finEfectivo(c) || finEfectivo(c) >= fecha))
       .sort((a, b) => b.inicio.localeCompare(a.inicio))[0] || null;
+  }
+  const contratosEn = (s, inmuebleId, fecha) => s.contratos.filter((c) => c.inmuebleId === inmuebleId && c.inicio <= fecha && (!finEfectivo(c) || finEfectivo(c) >= fecha)).sort((a, b) => a.inicio.localeCompare(b.inicio) || a.id - b.id);
+  // Reparto a partes iguales (los céntimos sobrantes, a los primeros)
+  function repartir(total, cts) { const n = cts.length, base = Math.floor(total / n); let resto = total - base * n; return cts.map((c) => ({ contratoId: c.id, importe: base + (resto-- > 0 ? 1 : 0) })); }
+  // Destino del cobro al inquilino: si el inmueble se alquila por habitaciones y hay varios inquilinos, se reparte entre todos
+  function destinoRepercusion(s, inmuebleId, fecha, total) {
+    const p = por(s.inmuebles, inmuebleId), cts = p && p.porUnidades ? contratosEn(s, inmuebleId, fecha) : [];
+    if (cts.length > 1) return { contratoId: cts[0].id, repercutir: total, reparto: repartir(total, cts) };
+    const ct = contratoEn(s, inmuebleId, fecha);
+    return ct ? { contratoId: ct.id, repercutir: total, reparto: null } : null;
   }
   function conflicto(s, inmuebleId, inicio, fin, exceptoId) {
     const p = por(s.inmuebles, inmuebleId);
@@ -400,9 +418,8 @@
   }
   const etiqueta = (mes, per) => (per === 'anual' ? mes.slice(0, 4) : `${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][+mes.slice(5) - 1]} ${mes.slice(0, 4)}`);
   function repercute(s, c, inmuebleId, fecha, importe) {
-    if (c.responsable !== 'repercute') return { contratoId: null, repercutir: 0 };
-    const ct = contratoEn(s, inmuebleId, fecha);
-    return ct ? { contratoId: ct.id, repercutir: Math.round(importe * (c.porcentaje == null ? 100 : c.porcentaje) / 100) } : { contratoId: null, repercutir: 0 };
+    if (c.responsable !== 'repercute') return { contratoId: null, repercutir: 0, reparto: null };
+    return destinoRepercusion(s, inmuebleId, fecha, Math.round(importe * (c.porcentaje == null ? 100 : c.porcentaje) / 100)) || { contratoId: null, repercutir: 0, reparto: null };
   }
   // Crea las previsiones que faltan hasta el mes siguiente. Nunca marca nada como pagado por su cuenta,
   // salvo el histórico anterior al alta del concepto en la app, que queda como «estimado».
@@ -439,11 +456,11 @@
     const fecha = d.fecha || hoy; if (!esFecha(fecha)) throw err('FECHA', 'Fecha no válida');
     const rep = d.repercutir || 0;
     if (!(esCent(rep) && rep >= 0 && rep <= d.importe)) throw err('IMPORTE', 'Lo que se cobra al inquilino no puede superar el gasto');
-    const ct = rep > 0 ? contratoEn(s, d.inmuebleId, fecha) : null;
-    if (rep > 0 && !ct) throw err('DATOS', 'Ese inmueble no tenía inquilino en esa fecha al que cobrar el gasto');
+    const dst = rep > 0 ? destinoRepercusion(s, d.inmuebleId, fecha, rep) : null;
+    if (rep > 0 && !dst) throw err('DATOS', 'Ese inmueble no tenía inquilino en esa fecha al que cobrar el gasto');
     const g = { id: id(s), inmuebleId: d.inmuebleId, conceptoId: null, clave: null, concepto: texto(d.concepto), categoria: CATEGORIAS[d.categoria] ? d.categoria : 'otro',
       periodo: etiqueta(fecha.slice(0, 7), 'mensual'), fecha, importe: d.importe, estimado: false, pagado: d.pagado ? { fecha: d.fechaPago || fecha } : null, anulado: null,
-      notas: texto(d.notas), recordatorio: null, contratoId: ct ? ct.id : null, repercutir: rep };
+      notas: texto(d.notas), recordatorio: null, contratoId: dst ? dst.contratoId : null, repercutir: rep, reparto: dst ? dst.reparto : null };
     s.gastos.push(g); anota(s, hoy, 'gasto_creado', g.id);
     return g;
   }
@@ -456,7 +473,10 @@
     if (d.importe != null) {
       if (!(esCent(d.importe) && d.importe >= 0)) throw err('IMPORTE', 'Importe no válido');
       const c = g.conceptoId ? por(s.conceptos, g.conceptoId) : null;
-      if (g.repercutir > 0 && c && reembolsado(s, i) === 0) g.repercutir = Math.round(d.importe * (c.porcentaje == null ? 100 : c.porcentaje) / 100);
+      if (g.repercutir > 0 && c && reembolsado(s, i) === 0) {
+        g.repercutir = Math.round(d.importe * (c.porcentaje == null ? 100 : c.porcentaje) / 100);
+        if (g.reparto) g.reparto = repartir(g.repercutir, g.reparto.map((x) => ({ id: x.contratoId })));
+      }
       g.importe = d.importe;
     }
     g.pagado = { fecha }; g.estimado = false; anota(s, hoy, 'gasto_confirmado', i, { importe: g.importe, fecha });
@@ -476,18 +496,27 @@
     const g = exige(s.gastos, d.gastoId, 'Gasto');
     if (g.anulado) throw err('ANULADO', 'Ese gasto está anulado');
     if (!(esCent(d.importe) && d.importe > 0)) throw err('IMPORTE', 'Indica un importe mayor que 0');
-    const pend = g.repercutir - reembolsado(s, g.id);
+    let contratoId = g.contratoId, pend = g.repercutir - reembolsado(s, g.id);
+    if (g.reparto) {
+      const pp = g.reparto.map((x) => ({ ...x, pend: x.importe - s.reembolsos.reduce((t, r) => (r.gastoId === g.id && !r.anulado && r.contratoId === x.contratoId ? t + r.importe : t), 0) }));
+      const x = d.contratoId != null ? pp.find((y) => y.contratoId === d.contratoId) : pp.find((y) => y.pend > 0);
+      if (!x) throw err('DATOS', 'Ese inquilino no participa en este gasto');
+      contratoId = x.contratoId; pend = x.pend;
+    }
     if (d.importe > pend) throw err('EXCESO', `El importe supera lo pendiente de cobrar (${euros(Math.max(0, pend))}).`, { pendiente: Math.max(0, pend) });
     const fecha = d.fecha || hoy; if (!esFecha(fecha) || fecha > hoy) throw err('FECHA', 'Fecha no válida o futura');
-    const r = { id: id(s), gastoId: g.id, importe: d.importe, fecha, metodo: texto(d.metodo), notas: texto(d.notas), anulado: null };
+    const r = { id: id(s), gastoId: g.id, contratoId, importe: d.importe, fecha, metodo: texto(d.metodo), notas: texto(d.notas), anulado: null };
     s.reembolsos.push(r); if (d.clave) s.claves[d.clave] = [r.id]; anota(s, hoy, 'reembolso', g.id, { importe: d.importe });
     return { repetido: false, id: r.id };
   }
   function anularReembolso(s, i, motivo, hoy) { const r = exige(s.reembolsos, i, 'Cobro'); r.anulado = { fecha: hoyOk(hoy), motivo: texto(motivo) || 'Anulado' }; return r; }
   function vistaGasto(s, g, hoy) {
     const cob = reembolsado(s, g.id), ct = g.contratoId ? por(s.contratos, g.contratoId) : null, q = ct ? por(s.inquilinos, ct.inquilinoId) : null;
-    return { ...g, estado: estadoGasto(s, g, hoy), cobrado: cob, porCobrar: g.anulado ? 0 : Math.max(0, g.repercutir - cob),
-      inmueble: (por(s.inmuebles, g.inmuebleId) || {}).nombre || '', inquilino: q ? q.nombre : '', telefono: q ? q.telefono : '' };
+    const partes = g.reparto ? g.reparto.map((x) => { const c = por(s.contratos, x.contratoId) || {}, qq = por(s.inquilinos, c.inquilinoId) || {};
+      const cobrado = s.reembolsos.reduce((t, r) => (r.gastoId === g.id && !r.anulado && r.contratoId === x.contratoId ? t + r.importe : t), 0);
+      return { contratoId: x.contratoId, inquilinoId: qq.id, inquilino: qq.nombre || '', telefono: qq.telefono || '', importe: x.importe, cobrado, pendiente: g.anulado ? 0 : Math.max(0, x.importe - cobrado) }; }) : null;
+    return { ...g, estado: estadoGasto(s, g, hoy), cobrado: cob, porCobrar: g.anulado ? 0 : Math.max(0, g.repercutir - cob), partes,
+      inmueble: (por(s.inmuebles, g.inmuebleId) || {}).nombre || '', inquilino: partes ? partes.map((x) => x.inquilino).join(', ') : q ? q.nombre : '', telefono: partes ? '' : q ? q.telefono : '' };
   }
   const gastos = (s, hoy, filtro) => s.gastos.filter(filtro || (() => true)).map((g) => vistaGasto(s, g, hoy)).sort((a, b) => b.fecha.localeCompare(a.fecha) || a.inmueble.localeCompare(b.inmueble));
 

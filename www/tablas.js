@@ -110,7 +110,7 @@
     for (let i = 0; i < Math.min(filas.length, 40) && cab < 0; i++) {
       const h = filas[i].map(norm), c = {};
       h.forEach((x, j) => {
-        if (c.fecha == null && /^f(echa|\.)?\s*(de\s*)?(operacion|oper|contable|movimiento)?$|^fecha/.test(x) && !/valor/.test(x)) c.fecha = j;
+        if (c.fecha == null && /^f(echa)?\.?\s*(de\s*)?(operacion|oper\.?|operativa|contable|movimiento|mov\.?)?$|^fecha/.test(x) && !/valor/.test(x)) c.fecha = j;
         if (c.fechaValor == null && /valor/.test(x) && /fecha/.test(x)) c.fechaValor = j;
         if (/concepto|descripcion|movimiento|detalle|observaciones|beneficiario|ordenante|remitente|mas datos|referencia/.test(x) && !/fecha/.test(x)) (c.concepto = c.concepto || []).push(j);
         if (c.importe == null && /^importe|^cantidad|^importe \(?eur|^monto/.test(x)) c.importe = j;
@@ -134,5 +134,34 @@
     return movs;
   }
 
-  return { leerCSV, leerXLSX, leerArchivo, extracto, importe, fecha, unzip };
+  // ---------- Norma 43 (Cuaderno 43 de la AEB): el formato que exportan todos los bancos españoles ----------
+  // Registro 22 = movimiento (fecha operación AAMMDD en 11-16, clave 1 cargo / 2 abono en 28, importe en céntimos en 29-42);
+  // registros 23 = conceptos complementarios del movimiento anterior.
+  function esNorma43(txt) { const l = txt.split(/\r?\n/).filter((x) => x.trim()); return l.length > 1 && /^11\d{18}/.test(l[0]) && l.some((x) => /^22/.test(x)); }
+  function norma43(txt) {
+    const movs = []; let ult = null;
+    for (const linea of txt.split(/\r?\n/)) {
+      if (/^22/.test(linea) && linea.length >= 42) {
+        const f = linea.slice(10, 16), imp = Number(linea.slice(28, 42)), signo = linea[27] === '1' ? -1 : 1;
+        if (!/^\d{6}$/.test(f) || !Number.isFinite(imp) || !imp) { ult = null; continue; }
+        const ref = [linea.slice(42, 52), linea.slice(52, 64), linea.slice(64, 80)].map((x) => x.trim()).filter((x) => x && !/^0+$/.test(x));
+        ult = { fecha: `20${f.slice(0, 2)}-${f.slice(2, 4)}-${f.slice(4, 6)}`, importe: signo * imp, concepto: ref.join(' · ') }; movs.push(ult);
+      } else if (/^23/.test(linea) && ult) {
+        const c = [linea.slice(4, 42), linea.slice(42, 80)].map((x) => x.trim()).filter(Boolean).join(' ');
+        if (c) ult.concepto = ult.concepto ? `${c} · ${ult.concepto}` : c;
+      } else if (!/^23/.test(linea)) ult = null;
+    }
+    if (!movs.length) throw Object.assign(new Error('El extracto no tiene movimientos que se puedan leer.'), { code: 'FORMATO' });
+    return movs;
+  }
+  async function leerExtracto(nombre, buf) {
+    const b = new Uint8Array(buf);
+    if (!(b[0] === 0x50 && b[1] === 0x4b) && !(b[0] === 0xd0 && b[1] === 0xcf)) {
+      let txt = new TextDecoder('utf-8').decode(b); if (txt.includes('\ufffd')) txt = new TextDecoder('windows-1252').decode(b);
+      if (esNorma43(txt)) return norma43(txt);
+    }
+    return extracto(await leerArchivo(nombre, buf));
+  }
+
+  return { leerCSV, leerXLSX, leerArchivo, extracto, leerExtracto, norma43, importe, fecha, unzip };
 });

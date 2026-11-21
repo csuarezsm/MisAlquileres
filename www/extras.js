@@ -416,6 +416,34 @@
       totales: { ingresos: sum((x) => x.ingresos.total), gastos: sum((x) => x.gastosAplicados), neto: sum((x) => x.rendimientoNeto), reduccion: sum((x) => x.reduccion),
         reducido: sum((x) => x.rendimientoReducido), retenciones: sum((x) => x.retenciones), imputacion: inmuebles.reduce((t, x) => t + (x.imputacion ? x.imputacion.importe : 0), 0), exceso: sum((x) => x.exceso) } };
   }
+  // ---------- Copropiedad ----------
+  const claveTit = (x) => (x.yo ? 'yo' : 'n:' + norm(x.nombre));
+  function partes(p) { return p.titulares && p.titulares.length ? p.titulares : [{ nombre: '', nif: '', pct: 100, yo: true }]; }
+  function titulares(s) {
+    const m = new Map([['yo', { clave: 'yo', nombre: s.ajustes.propietario || '', yo: true }]]);
+    for (const p of s.inmuebles) for (const x of partes(p)) if (!m.has(claveTit(x))) m.set(claveTit(x), { clave: claveTit(x), nombre: x.nombre, nif: x.nif, yo: x.yo });
+    return [...m.values()];
+  }
+  const SIN_ESCALA = new Set(['id', 'anio', 'diasAnio', 'diasPropiedad', 'diasAlquilado', 'diasVacio', 'dias', 'porcentaje', 'porcentajeConstruccion', 'reduccionPct', 'vivienda', 'generado', 'pct']);
+  function escalar(o, k, enContratos) {
+    if (Array.isArray(o)) return o.map((x) => escalar(x, k, enContratos));
+    if (o && typeof o === 'object') { const r = {}; for (const [c, v] of Object.entries(o)) r[c] = SIN_ESCALA.has(c) || (enContratos && c === 'reduccion') ? v : escalar(v, k, enContratos || c === 'contratos'); return r; }
+    return typeof o === 'number' ? Math.round(o * k) : o;
+  }
+  // El mismo informe, con la parte de cada inmueble que corresponde a un titular
+  function informeTitular(inf, s, clave) {
+    if (!clave) return inf;
+    const inmuebles = [];
+    for (const x of inf.inmuebles) {
+      const p = por(s.inmuebles, x.id), parte = p && partes(p).find((t) => claveTit(t) === clave); if (!parte) continue;
+      const e = escalar(x, parte.pct / 100); e.parte = parte.pct;
+      if (parte.pct !== 100) e.avisos = [`Importes al ${pct(parte.pct)}: la parte de este titular.`, ...(e.avisos || [])];
+      inmuebles.push(e);
+    }
+    const act = inmuebles.filter((x) => !x.sinActividad), sum = (f) => act.reduce((t, x) => t + f(x), 0), tit = titulares(s).find((t) => t.clave === clave) || {};
+    return { ...inf, titular: tit, inmuebles, totales: { ingresos: sum((x) => x.ingresos.total), gastos: sum((x) => x.gastosAplicados), neto: sum((x) => x.rendimientoNeto), reduccion: sum((x) => x.reduccion),
+      reducido: sum((x) => x.rendimientoReducido), retenciones: sum((x) => x.retenciones), imputacion: inmuebles.reduce((t, x) => t + (x.imputacion ? x.imputacion.importe : 0), 0), exceso: sum((x) => x.exceso || 0) } };
+  }
   function csvRenta(inf) {
     const e = (c) => c / 100, filas = [];
     for (const x of inf.inmuebles) {
@@ -432,5 +460,5 @@
 
   return { letras, eurosLetras, datosRecibo, INDICES, actualizacionPendiente, aplicarActualizacion, omitirActualizacion, registrarDeposito, recuperarDeposito, avisosFianza,
     escalon, avisosApp, proximosAvisos, cobroDesdeAviso, conciliar, aplicarConciliacion, altaRapida, importarCartera, PLANTILLA_CARTERA, fechaTexto,
-    agregarAdjunto, quitarAdjunto, adjuntosDe, GRUPOS_RENTA: GRUPOS, informeRenta, csvRenta, normalizar: norm, pctTexto: pct, fmes };
+    agregarAdjunto, quitarAdjunto, adjuntosDe, GRUPOS_RENTA: GRUPOS, informeRenta, csvRenta, partes, titulares, informeTitular, normalizar: norm, pctTexto: pct, fmes };
 });

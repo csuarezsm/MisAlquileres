@@ -14,7 +14,7 @@ async function pagina(opts = {}, tienda) {
   await ctx.addInitScript(() => { new MutationObserver(() => document.querySelectorAll('#hoja details:not([open])').forEach((d) => { d.open = true; })).observe(document, { childList: true, subtree: true }); });
   if (tienda) await ctx.addInitScript(() => { window.Tienda = { disponible: true, precio: async () => '9,99 €', comprar: async () => { localStorage.setItem('t.comprado', '1'); return true; }, tiene: async () => localStorage.getItem('t.comprado') === '1' }; });
   const p = await ctx.newPage(); p.on('pageerror', (e) => errores.push(String(e))); p.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
-  if (process.env.RECOGER) { await ctx.addInitScript(() => { window.__faltan = new Set(); const rev = (r) => { if (!window.Idioma || !r) return; const w = document.createTreeWalker(r, 5); let n = r; do { if (n.nodeType === 3) { const v = n.nodeValue.trim(); if (v && !(n.parentNode.closest && n.parentNode.closest('[data-notr],textarea,script,style'))) Idioma.trad(v, 'en'); } else if (n.nodeType === 1) for (const a of ['aria-label', 'placeholder', 'title']) if (n.hasAttribute(a)) Idioma.trad(n.getAttribute(a), 'en'); } while ((n = w.nextNode())); };
+  if (process.env.RECOGER) { await ctx.addInitScript(() => { window.__faltan = new Set(); const rev = (r) => { if (!window.Idioma || !r) return; const w = document.createTreeWalker(r, 5); let n = r; do { if (n.nodeType === 3) { const v = n.nodeValue.trim(); if (v && n.parentNode && !(n.parentNode.closest && n.parentNode.closest('[data-notr],textarea,script,style'))) Idioma.trad(v, 'en'); } else if (n.nodeType === 1) for (const a of ['aria-label', 'placeholder', 'title']) if (n.hasAttribute(a)) Idioma.trad(n.getAttribute(a), 'en'); } while ((n = w.nextNode())); };
       document.addEventListener('DOMContentLoaded', () => { rev(document.body); new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(rev))).observe(document.body, { childList: true, subtree: true }); }); window.addEventListener('beforeunload', () => { const v = JSON.parse(sessionStorage.getItem('f') || '[]'); sessionStorage.setItem('f', JSON.stringify([...new Set([...v, ...window.__faltan])])); }); }); PAGS.push(p); }
   await p.goto(URL0); await p.waitForFunction(() => window.__ma); return p;
 }
@@ -188,6 +188,16 @@ try {
     await p.waitForFunction(() => !window.__ma.S.ajustes.copias.drive); await p.keyboard.press('Escape');
     await p.evaluate(() => { window.Plataforma.Drive.disponible = false; window.Plataforma.Archivos.enMovil = false; window.__ma.pinta(); });
   });
+  await paso('bloqueo con huella o PIN: activar, bloquear al salir y desbloquear', async () => {
+    await p.evaluate(() => { const B = window.Plataforma.Bloqueo; window.__huella = 0; B.disponible = true; B.estado = async () => ({ disponible: true }); B.autenticar = async () => { window.__huella++; }; B.proteger = (a) => { window.__oculto = a; }; window.__ma.pinta(); });
+    await p.goto(URL0 + '#ajustes'); await p.locator('[data-a=seguridad]').click(); await campo(p, 'activo').check(); await campo(p, 'minutos').selectOption('0'); await campo(p, 'ocultar').check(); await guardar(p);
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem('ma.bloqueo') || '{}').activo === true); assert.equal(await p.evaluate(() => window.__huella), 1); assert.equal(await p.evaluate(() => window.__oculto), true);
+    await p.evaluate(() => { window.Plataforma.Bloqueo.autenticar = () => new Promise((ok) => { window.__abrir = ok; }); Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await p.locator('#candado').waitFor(); assert.ok(await p.evaluate(() => document.body.classList.contains('bloqueada'))); await foto(p, '12-bloqueo');
+    await p.evaluate(() => window.__abrir()); await p.locator('#candado').waitFor({ state: 'hidden' });
+    await p.evaluate(() => { localStorage.removeItem('ma.bloqueo'); delete document.hidden; window.Plataforma.Bloqueo.disponible = false; window.__ma.pinta(); });
+  });
   await paso('apariencia: color y tamaño de letra se aplican y se guardan', async () => {
     await p.goto(URL0 + '#apariencia'); await p.locator('[data-a=ap][data-k=acento][data-v="#2c62c6"]').click(); await p.locator('[data-a=ap][data-k=fs][data-v="1.15"]').click();
     const ap = await p.evaluate(() => JSON.parse(localStorage.getItem('ma.ap'))); assert.equal(ap.acento, '#2c62c6'); assert.equal(ap.fs, 1.15);
@@ -205,6 +215,22 @@ try {
     await q.locator('#toast').getByText(/Copia recuperada, con 1 documentos/).waitFor(); const s = await S(q); assert.equal(s.inmuebles.length, 2); assert.equal(s.pro, false);
     assert.ok(await q.evaluate(async () => { const a = window.__ma.S.adjuntos[0]; const b = await window.Plataforma.Adjuntos.leer(a.archivo); return !!b && b.length > 0; }), 'la foto vuelve con la copia');
     await q.goto(URL0 + '#inmuebles'); await q.locator('.fab').click(); await q.locator('#hoja').getByText('Google Play').waitFor(); if (process.env.RECOGER) await recoger(q); await q.context().close();
+  });
+  await paso('datos de ejemplo: se cargan, no hacen copias y se borran para empezar', async () => {
+    const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click();
+    await q.locator('[data-a=finEjemplo]').waitFor(); let s = await S(q); assert.equal(s.inmuebles.length, 3); assert.equal(s.ejemplo, true); assert.ok(s.pagos.length > 5);
+    await q.locator('[data-a=finEjemplo]').click(); await q.locator('#hoja [data-x=si]').click(); await q.locator('[data-a=altaRapida]').waitFor();
+    s = await S(q); assert.equal(s.inmuebles.length, 0); assert.ok(!s.ejemplo); if (process.env.RECOGER) await recoger(q); await q.context().close();
+  });
+  await paso('copropiedad: titulares del inmueble y Renta por titular', async () => {
+    const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click(); await q.locator('[data-a=finEjemplo]').waitFor();
+    await q.goto(URL0 + '#inmuebles'); await q.locator('[data-a=inmueble]').first().click(); await q.locator('#hoja [data-a=datosFiscales]').click();
+    await campo(q, 'miPct').fill('60'); await campo(q, 'c0Nombre').fill('Juan Pérez'); await campo(q, 'c0Pct').fill('30'); await guardar(q);
+    assert.match(await q.locator('#hoja .error').innerText(), /sumar 100/); await campo(q, 'c0Pct').fill('40'); await guardar(q);
+    const s = await S(q); assert.equal(s.inmuebles.find((x) => x.titulares && x.titulares.length).titulares.length, 2);
+    await q.goto(URL0 + '#renta'); await q.locator('[data-titular]').waitFor(); assert.equal(await q.locator('[data-titular] option').count(), 2);
+    await q.locator('[data-titular]').selectOption({ label: 'Juan Pérez' }); await q.waitForTimeout(150);
+    if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
   await paso('alta rápida en una instalación nueva, y la importación respeta el límite gratuito', async () => {
     const q = await pagina(); await q.getByRole('button', { name: 'Alta rápida' }).click();

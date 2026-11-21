@@ -205,3 +205,23 @@ test('gastos típicos y recordatorios futuros', () => {
   assert.ok(a.some((x) => x.fecha === '2026-12-20')); assert.ok(a.some((x) => x.fecha === '2026-12-31' && /vence/.test(x.titulo)));
   assert.ok(a.some((x) => x.titulo === 'Cobros atrasados')); assert.ok(a.every((x) => x.fecha > HOY));
 });
+
+test('habitaciones: un gasto repercutido se reparte entre los inquilinos y se cobra a cada uno', () => {
+  const s = MA.nuevo(); s.pro = true; const H = '2026-11-20';
+  const p = MA.crearInmueble(s, { nombre: 'Casa de habitaciones', tipo: 'Vivienda', porUnidades: true }, H);
+  const qs = ['Ana', 'Luis', 'Marta'].map((n) => MA.crearInquilino(s, { nombre: n }));
+  const cts = qs.map((q) => MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2026-09-01', importe: 40000 }, H));
+  MA.crearConcepto(s, { inmuebleId: p.id, concepto: 'Luz', categoria: 'suministros', responsable: 'repercute', porcentaje: 100, periodicidad: 'mensual', importe: 10000, dia: 10, desde: '2026-10' }, H);
+  MA.generarGastos(s, H);
+  const g = MA.gastos(s, H, (x) => x.concepto === 'Luz' && x.clave === '2026-10')[0];
+  assert.deepEqual(g.partes.map((x) => x.importe), [3334, 3333, 3333]); assert.equal(g.inquilino, 'Ana, Luis, Marta');
+  MA.confirmarGasto(s, g.id, { importe: 12000, fecha: '2026-10-10' }, H);
+  assert.deepEqual(MA.gastos(s, H, (x) => x.id === g.id)[0].partes.map((x) => x.importe), [4000, 4000, 4000]);
+  MA.registrarReembolso(s, { gastoId: g.id, contratoId: cts[1].id, importe: 4000, fecha: H }, H);
+  assert.throws(() => MA.registrarReembolso(s, { gastoId: g.id, contratoId: cts[1].id, importe: 1, fecha: H }, H), (e) => e.code === 'EXCESO');
+  const v = MA.gastos(s, H, (x) => x.id === g.id)[0];
+  assert.deepEqual(v.partes.map((x) => x.pendiente), [4000, 0, 4000]); assert.equal(v.porCobrar, 8000);
+  // gasto suelto también se reparte
+  const g2 = MA.crearGasto(s, { inmuebleId: p.id, concepto: 'Internet', categoria: 'suministros', importe: 3000, repercutir: 3000, fecha: '2026-11-01', pagado: true }, H);
+  assert.equal(g2.reparto.length, 3);
+});

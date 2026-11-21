@@ -191,3 +191,41 @@ test('idiomas: diccionarios completos y marcadores', () => {
   assert.equal(I.trad('Cobrar a Ana Pérez', 'fr'), 'Encaisser de Ana Pérez');
   assert.equal(I.trad('20 de noviembre 2026', 'it'), '20 novembre 2026');
 });
+
+test('extracto Norma 43: abonos, cargos, conceptos complementarios y cabeceras de bancos', async () => {
+  const pad = (s, n) => (s + ' '.repeat(n)).slice(0, n);
+  const l = [
+    pad('11' + '2100' + '1234' + '1234567890' + '261101' + '261130' + '2' + '00000000100000' + '978' + '3' + 'CARLOS', 80),
+    pad('22' + '    ' + '1234' + '261105' + '261105' + '02' + '099' + '2' + '00000000065000' + '0000000000' + 'BIZUM ANA   ' + '', 80),
+    pad('23' + '01' + pad('TRANSFERENCIA DE ANA PEREZ GIL', 38) + pad('ALQUILER NOVIEMBRE', 38), 80),
+    pad('22' + '    ' + '1234' + '261110' + '261110' + '03' + '012' + '1' + '00000000004550' + '0000000000' + 'COMUNIDAD   ', 80),
+    pad('33' + '2100' + '1234' + '1234567890', 80), pad('88' + '9'.repeat(18), 80)];
+  const m = Tablas.norma43(l.join('\r\n'));
+  assert.equal(m.length, 2);
+  assert.deepEqual([m[0].fecha, m[0].importe], ['2026-11-05', 65000]); assert.match(m[0].concepto, /ANA PEREZ GIL.*ALQUILER NOVIEMBRE.*BIZUM ANA/);
+  assert.deepEqual([m[1].fecha, m[1].importe], ['2026-11-10', -4550]);
+  const r = await Tablas.leerExtracto('extracto.n43', new TextEncoder().encode(l.join('\n')).buffer); assert.equal(r.length, 2);
+  // Sabadell (F. Operativa) y Caja Rural (F. Oper.)
+  for (const cab of ['F. Operativa', 'F. Oper.', 'Fecha Operación', 'Fecha']) {
+    const e = Tablas.extracto([['Extracto de la cuenta'], [cab, 'Concepto', 'F. Valor', 'Importe', 'Saldo'], ['05/11/2026', 'BIZUM ANA', '05/11/2026', '650,00', '1.000,00']]);
+    assert.deepEqual([e[0].fecha, e[0].importe], ['2026-11-05', 65000], cab);
+  }
+});
+
+test('copropiedad: porcentajes validados e informe de la Renta por titular', () => {
+  const { s, p, q } = base(); s.ajustes.propietario = 'María';
+  falla(() => MA.editarInmueble(s, p.id, { titulares: [{ yo: true, pct: 50 }, { nombre: 'Juan', pct: 40 }] }), 'DATOS');
+  MA.editarInmueble(s, p.id, { valorCatastral: 8000000, valorCatastralConstruccion: 5000000, titulares: [{ yo: true, pct: 50 }, { nombre: 'Juan Pérez', nif: '42000001A', pct: 50 }] });
+  MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2025-01-01', importe: 70000 }, '2025-12-31');
+  MA.generarCargos(s, '2025-12-31'); for (const c of s.cargos) MA.registrarPago(s, { cargoId: c.id, importe: c.importe, fecha: c.vence }, HOY);
+  MA.crearGasto(s, { inmuebleId: p.id, concepto: 'IBI', categoria: 'impuesto', importe: 36500, fecha: '2025-09-10', pagado: true }, HOY);
+  const todo = MA.informeRenta(s, 2025, HOY), tits = MA.titulares(s);
+  assert.deepEqual(tits.map((x) => x.nombre), ['María', 'Juan Pérez']);
+  const yo = MA.informeTitular(todo, s, 'yo'), juan = MA.informeTitular(todo, s, tits[1].clave);
+  assert.equal(yo.inmuebles[0].ingresos.total, todo.inmuebles[0].ingresos.total / 2);
+  assert.equal(juan.totales.ingresos, todo.totales.ingresos / 2); assert.equal(juan.inmuebles[0].diasAlquilado, todo.inmuebles[0].diasAlquilado);
+  assert.equal(juan.inmuebles[0].contratos[0].reduccion, todo.inmuebles[0].contratos[0].reduccion, 'el % de reducción no se reparte');
+  assert.ok(Math.abs(juan.totales.neto + yo.totales.neto - todo.totales.neto) <= 1);
+  assert.match(juan.inmuebles[0].avisos[0], /50 %/);
+  MA.editarInmueble(s, p.id, { titulares: [{ yo: true, pct: 100 }] }); assert.deepEqual(MA.partes(p), [{ nombre: '', nif: '', pct: 100, yo: true }]);
+});

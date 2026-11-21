@@ -28,12 +28,13 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 • Marca «Cobrado» con un toque, incluso desde la notificación
 • Recibo en PDF numerado y compacto (medio folio), en el idioma del inquilino, para enviarlo por WhatsApp
 • Recordatorios al inquilino a los 3 y a los 10 días de retraso
-• Importa el extracto del banco (Excel o CSV) y la app casa cada transferencia o Bizum con su recibo
+• Importa el extracto del banco (Norma 43, Excel o CSV) y la app casa cada transferencia o Bizum con su recibo
 • Los cobros no se borran: se anulan y quedan en el historial
 
 🧾 DECLARACIÓN DE LA RENTA
 • Informe por inmueble: ingresos, gastos deducibles, intereses, amortización, reducción e imputación de días vacíos
 • En PDF o Excel, listo para trasladar a Renta Web o a tu asesor
+• Inmuebles con varios titulares (por ejemplo, un matrimonio): informe por titular
 
 📎 DOCUMENTOS
 • Contrato firmado, DNI, facturas y fotos del estado del inmueble, guardados en cada ficha
@@ -41,6 +42,7 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 📉 GASTOS
 • IBI, comunidad, seguro, suministros… con su periodicidad
 • Quién paga cada cosa, y qué parte le cobras al inquilino
+• Alquiler por habitaciones: los suministros se reparten entre los inquilinos
 • Los recibos domiciliados se confirman cuando compruebas el cargo
 
 📊 PANEL
@@ -62,9 +64,10 @@ Mis alquileres te ayuda a llevar al día lo que alquilas: plazas de garaje, tras
 
 🔒 TUS DATOS, EN TU MÓVIL
 • Sin cuentas, sin publicidad y sin enviar nada a nuestros servidores
+• Bloqueo con la huella o el PIN del móvil
 • Copias de seguridad automáticas (cada día, semana o mes) en el móvil y, si quieres, en tu Google Drive, con los documentos y fotos
 
-Empieza en un minuto con el alta rápida o importa tus inmuebles desde Excel.
+Empieza en un minuto con el alta rápida, importa tus inmuebles desde Excel o pruébala antes con datos de ejemplo.
 
 Gratis con un inmueble. Con un pago único puedes añadir todos los que quieras, sin suscripción.
 

@@ -169,6 +169,15 @@
     },
   };
 
+  // ---------- Bloqueo con la huella o el PIN del propio móvil ----------
+  const NBloq = NATIVO ? (P.Bloqueo || (C.registerPlugin ? C.registerPlugin('Bloqueo') : null)) : null;
+  const Bloqueo = {
+    disponible: !!NBloq,
+    async estado() { try { return NBloq ? await NBloq.disponible() : { disponible: false, motivo: 'NO_DISPONIBLE' }; } catch (e) { return { disponible: false, motivo: 'NO_DISPONIBLE' }; } },
+    autenticar(titulo) { return NBloq.autenticar({ titulo }); },
+    proteger(activo) { if (NBloq) NBloq.proteger({ activo: !!activo }).catch(() => {}); },
+  };
+
   // ---------- Avisos del móvil (notificaciones locales, sin servidor) ----------
   const Avisos = {
     disponible: NATIVO && !!P.LocalNotifications,
@@ -221,7 +230,7 @@
     },
   };
 
-  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive,
+  window.Plataforma = { NATIVO, Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo,
     // En la app de Android, navegar al enlace hace que Android lo abra en su app (WhatsApp); en el navegador, pestaña nueva
     abrir(url) { if (NATIVO) window.location.href = url; else window.open(url, '_blank'); },
     alVolver(fn) { document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); }); } };

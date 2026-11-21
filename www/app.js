@@ -1,8 +1,8 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.4.0';
-  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, NATIVO } = window.Plataforma;
+  const APP_VERSION = '1.5.0';
+  const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const eur = MA.euros;
@@ -52,6 +52,23 @@
       if (Avisos.disponible) Avisos.programar(S.ajustes.avisos ? [...MA.proximosAvisos(S, HOY, 60), ...avisoCopia()] : [], S.ajustes.horaAvisos || 9);
     }, 300);
   }
+  // ---------- Bloqueo con huella o PIN (se guarda en el propio móvil, no va en las copias) ----------
+  const BLOQ_DEF = { activo: false, minutos: 1, ocultar: false };
+  const leerBloq = () => { try { return { ...BLOQ_DEF, ...JSON.parse(localStorage.getItem('ma.bloqueo') || '{}') }; } catch (e) { return { ...BLOQ_DEF }; } };
+  let bloqueada = false, salida = 0, pidiendo = false;
+  function bloquear() { if (!Bloqueo.disponible || !leerBloq().activo) return; bloqueada = true; $('#candado').hidden = false; document.body.classList.add('bloqueada'); desbloquear(); }
+  async function desbloquear() {
+    if (pidiendo) return; pidiendo = true;
+    try { await Bloqueo.autenticar(Idioma.t('Desbloquear Mis alquileres')); bloqueada = false; salida = 0; $('#candado').hidden = true; document.body.classList.remove('bloqueada'); }
+    catch (e) { /* sigue bloqueada; puede volver a pulsar «Desbloquear» */ } finally { pidiendo = false; }
+  }
+  if ($('#candado')) $('#candado [data-x=desbloquear]').onclick = desbloquear;
+  document.addEventListener('visibilitychange', () => {
+    const b = leerBloq(); if (!b.activo || pidiendo) return;
+    if (document.hidden) salida = Date.now(); else if (!bloqueada && salida && Date.now() - salida >= b.minutos * 60000) bloquear();
+  });
+  Bloqueo.proteger(leerBloq().ocultar); bloquear();
+
   // ---------- Copias de seguridad programadas ----------
   const FREC = { diaria: 1, semanal: 7, mensual: 30 };
   const confCopias = () => ({ frecuencia: 'diaria', adjuntos: true, guardar: 7, ...(S.ajustes.copias || {}) });
@@ -70,7 +87,7 @@
   // Si una de las dos falla, se reintenta la próxima vez sin repetir la que salió bien.
   async function copiaProgramada(forzar) {
     const c = confCopias(), f = FREC[c.frecuencia], conDrive = c.drive && Drive.disponible;
-    if (!(Archivos.enMovil || conDrive) || copiando || (!forzar && (!f || !S.contratos.length))) return false;
+    if (!(Archivos.enMovil || conDrive) || copiando || (!forzar && (!f || !S.contratos.length || S.ejemplo))) return false;
     const tocaMovil = Archivos.enMovil && (forzar || !c.ultima || MA.diasEntre(c.ultima, HOY) >= f);
     const tocaDrive = conDrive && (forzar || !c.driveUltima || MA.diasEntre(c.driveUltima, HOY) >= f);
     if (!tocaMovil && !tocaDrive) return false;
@@ -105,6 +122,8 @@
     return [{ diaria: 'Cada día', semanal: 'Cada semana', mensual: 'Cada mes' }[c.frecuencia], c.adjuntos ? 'Con documentos y fotos' : 'Solo los datos',
       c.drive ? 'Móvil y Google Drive' : 'Solo en el móvil', u ? 'Última: ' + fecha(u) : ''].filter(Boolean).join(' · ');
   }
+  // Informe de la Renta del año elegido: de todo (tu parte) o de otro titular
+  const informe = () => MA.informeTitular(MA.informeRenta(S, V.renta, HOY), S, V.titular || (MA.titulares(S).length > 1 ? 'yo' : null));
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
 
   // ---------- Avisos en pantalla ----------
@@ -174,8 +193,9 @@
       const f = $('form', el); let enviando = false;
       f.onsubmit = (e) => {
         e.preventDefault(); if (enviando) return; enviando = true;
-        try { const r = alGuardar(leer(f, defs), f); guardar(); cerrar(); pinta(); if (despues) despues(r); }
-        catch (x) { enviando = false; if (x.code === 'LIMITE') return fallo(x); const b = $('.error', f); b.textContent = x.code ? x.message : 'No se ha podido guardar.'; b.hidden = false; b.scrollIntoView({ block: 'nearest' }); if (!x.code) console.error(x); }
+        const mal = (x) => { enviando = false; if (x.code === 'LIMITE') return fallo(x); const b = $('.error', f); b.textContent = x.code ? x.message : 'No se ha podido guardar.'; b.hidden = false; b.scrollIntoView({ block: 'nearest' }); if (!x.code) console.error(x); };
+        const bien = (r) => { guardar(); cerrar(); pinta(); if (despues) despues(r); };
+        try { const r = alGuardar(leer(f, defs), f); if (r && typeof r.then === 'function') r.then(bien, mal); else bien(r); } catch (x) { mal(x); }
       };
       if (alMontar) alMontar(f);
     });
@@ -226,6 +246,7 @@
     estrella: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>', ayuda: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.1.9-1.1 1.6v.5"/><path d="M12 17h.01"/>',
     chev: '<path d="M9 5l7 7-7 7"/>', mensaje: '<path d="M4 5h16v11H9l-5 4z"/>', campana: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
     nube: '<path d="M7 18a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.5 1.6A3.8 3.8 0 0 1 17.5 18z"/>', subir: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>', bajar: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+    candado: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
     borrar: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', escudo: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
     euro: '<circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.6a4 4 0 1 0 0 6.8"/><path d="M7 11h6M7 13.5h6"/>', doc: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/>',
     alerta: '<path d="M12 3.5l9 16H3z"/><path d="M12 10v4M12 17h.01"/>', gasto: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>', llave: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>',
@@ -305,14 +326,15 @@
       if (!S.inmuebles.length) return `<div class="vacio"><b>Empieza en un minuto</b><p>Apunta el inmueble, quién lo alquila y cuánto paga. La app creará los recibos de cada mes y te avisará.</p>
         <div class="acc centro"><button class="btn pri" data-a="altaRapida">Alta rápida</button></div>
         <div class="acc centro"><button class="btn" data-a="importarCartera">Importar desde Excel</button><button class="btn" data-a="nuevoInmueble">Paso a paso</button></div>
-        <div class="acc centro"><button class="btn txt" data-a="restaurar">¿Ya usabas la app? Recuperar una copia</button></div></div>`;
+        <div class="acc centro"><button class="btn txt" data-a="restaurar">¿Ya usabas la app? Recuperar una copia</button></div>
+        <div class="acc centro"><button class="btn txt" data-a="ejemplo">Probar con datos de ejemplo</button></div></div>`;
       if (!S.contratos.length) return vacio('Ahora, el contrato', 'Indica quién alquila el inmueble, desde cuándo y cuánto paga.', ['nuevoContrato', 'Crear contrato']);
       const k = MA.panel(S, HOY), cs = MA.cargos(S, HOY, (c) => !c.anulado), gs = MA.gastos(S, HOY, (g) => !g.anulado), finMes = MA.masMeses(HOY.slice(0, 7) + '-01', 1);
       const ds = deudas(), mes = cs.filter((c) => (c.estado === 'pendiente' || c.estado === 'parcial') && c.vence >= HOY && c.vence < finMes);
       const vencen = S.contratos.filter((ct) => ['por_vencer', 'vencido'].includes(MA.situacionContrato(ct, HOY)));
       const gPte = gs.filter((g) => !g.pagado && g.fecha < finMes).reverse(), gCob = gs.filter((g) => g.porCobrar > 0 && g.pagado);
       const m = k.mesActual, tareas = MA.avisosApp(S, HOY).filter((x) => /^(actualizacion|fianza_|copia)/.test(x.tipo));
-      return `<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
+      return `${S.ejemplo ? `<div class="nota esp">Estás viendo datos de ejemplo. Cuando quieras, bórralos y empieza con los tuyos.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Borrar el ejemplo y empezar</button></div></div>` : ''}<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
           <div class="barra-mes"><i data-w="${m.porcentaje || 0}"></i></div>
           <div class="pie"><span>Por cobrar <b>${eur(m.pendiente)}</b></span>${k.morosidad.deuda ? `<span>Atrasos <b>${eur(k.morosidad.deuda)}</b></span>` : ''}<span>Ocupación <b>${k.cartera.ocupacion == null ? '—' : String(k.cartera.ocupacion).replace('.', ',') + ' %'}</b></span></div></section>
         ${sec('Te deben', ds.length > 1 ? eur(ds.reduce((t, d) => t + d.total, 0)) : '', ds.map(deudaTar).join(''))}
@@ -382,10 +404,12 @@
         ${c.deudaHipotecaria ? sec('Patrimonio', '', `<div class="kpis"><div class="kpi"><span>Deuda hipotecaria</span><b>${eur(c.deudaHipotecaria)}</b></div><div class="kpi"><span>Valor menos deuda</span><b>${eur(c.patrimonio)}</b></div></div>`) : ''}`;
     },
     renta() {
-      const inf = MA.informeRenta(S, V.renta, HOY), t = inf.totales, act = inf.inmuebles.filter((x) => !x.sinActividad);
+      const tits = MA.titulares(S); if (V.titular && !tits.some((x) => x.clave === V.titular)) V.titular = undefined;
+      const inf = informe(), t = inf.totales, act = inf.inmuebles.filter((x) => !x.sinActividad);
       const fila = (a, b, n) => `<tr><td>${n ? '<b>' + h(a) + '</b>' : h(a)}</td><td>${n ? '<b>' + b + '</b>' : b}</td></tr>`;
       return `<div class="nav"><button data-a="anioRenta" data-d="-1" aria-label="Año anterior">‹</button><b>Ejercicio ${V.renta}</b><button data-a="anioRenta" data-d="1" aria-label="Año siguiente"${V.renta >= +HOY.slice(0, 4) ? ' disabled' : ''}>›</button></div>
         <p class="nota">Resumen orientativo para preparar la declaración. Revísalo con Renta Web o con tu asesor: depende de que los datos estén completos.</p>
+        ${tits.length > 1 ? `<label class="f">Titular<select data-titular>${tits.map((x) => `<option value="${x.clave === 'yo' ? '' : h(x.clave)}"${(V.titular || '') === (x.clave === 'yo' ? '' : x.clave) ? ' selected' : ''}>${x.yo ? h(Idioma.t('Tú') + (x.nombre ? ' (' + x.nombre + ')' : '')) : h(x.nombre)}</option>`).join('')}</select></label>` : ''}
         ${act.length ? `<div class="kpis"><div class="kpi"><span>Ingresos</span><b>${eur(t.ingresos)}</b></div><div class="kpi"><span>Gastos deducibles</span><b>${eur(t.gastos)}</b></div>
           <div class="kpi"><span>Rendimiento neto</span><b>${eur(t.neto)}</b></div><div class="kpi"><span>Tras reducción</span><b>${eur(t.reducido)}</b></div></div>` : ''}
         <div class="acc"><button class="btn pri" data-a="rentaPdf">Informe en PDF</button><button class="btn" data-a="rentaCsv">CSV para Excel</button></div><div class="esp"></div>
@@ -401,7 +425,7 @@
     },
     ajustes() {
       return `${sec('Tus datos y avisos', '', `<div class="lista">${item('misDatos', 'usuario', 'Mis datos', S.ajustes.propietario || 'Tu nombre y DNI para mensajes y recibos')}${item('plantillas', 'mensaje', 'Mensajes', 'Textos de los avisos por WhatsApp')}
-          ${item('avisosConf', 'campana', 'Avisos en el móvil', !Avisos.disponible ? 'Disponibles en la app de Android' : S.ajustes.avisos ? `Activados, a las ${S.ajustes.horaAvisos || 9}:00` : 'Desactivados')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}</div>`)}
+          ${item('avisosConf', 'campana', 'Avisos en el móvil', !Avisos.disponible ? 'Disponibles en la app de Android' : S.ajustes.avisos ? `Activados, a las ${S.ajustes.horaAvisos || 9}:00` : 'Desactivados')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}${item('seguridad', 'candado', 'Bloqueo con huella o PIN', !Bloqueo.disponible ? 'Disponible en la app de Android' : leerBloq().activo ? 'Activado' : 'Desactivado')}</div>`)}
         ${sec('Copia de seguridad', '', `<p class="nota">Tus datos están solo en este móvil. Si lo pierdes o lo cambias, la copia es la forma de recuperarlos.</p>
           <div class="lista">${item('copiasConf', 'reloj', 'Copias automáticas', resumenCopias())}${item('copia', 'nube', 'Guardar una copia ahora', S.ajustes.ultimaCopia ? 'Para Drive o el correo. Última: ' + fecha(S.ajustes.ultimaCopia) : 'Para Drive o el correo')}${item('restaurar', 'bajar', 'Recuperar una copia', 'Sustituye los datos actuales')}</div>
           ${confCopias().error && confCopias().error >= (confCopias().ultima || '') ? '<p class="nota esp">La última copia automática no se ha podido guardar. Revisa el espacio libre o guarda una copia a mano.</p>' : ''}
@@ -589,7 +613,9 @@
       <div class="kpis"><div class="kpi"><span>Importe${g.estimado ? ' (estimado)' : ''}</span><b>${eur(g.importe)}</b></div><div class="kpi"><span>${g.pagado ? 'Pagado el' : 'Estado'}</span><b>${g.pagado ? fecha(g.pagado.fecha) : E_GASTO[g.estado][0]}</b></div></div>
       ${g.anulado ? `<p class="nota">Anulado el ${fecha(g.anulado.fecha)}: ${h(g.anulado.motivo)}</p>` : ''}
       ${pte ? `<h3>Marcar como pagado</h3><form id="fgasto" novalidate><div class="error" hidden role="alert"></div><div class="dos">${campos([{ k: 'importe', e: 'Importe real', t: 'dinero' }, { k: 'fecha', e: 'Fecha de pago', t: 'date' }], { importe: g.importe, fecha: g.fecha <= HOY ? g.fecha : HOY })}</div><button class="btn pri ancho" type="submit">Pagado</button></form>` : ''}
-      ${g.repercutir > 0 && !g.anulado ? `<h3>Cobro al inquilino</h3><p class="sub">${h(g.inquilino)} debe pagarte ${eur(g.repercutir)}. Cobrado: ${eur(g.cobrado)}.</p>
+      ${g.partes && !g.anulado ? `<h3>Reparto entre los inquilinos</h3><p class="sub">${eur(g.repercutir)} a partes iguales entre ${g.partes.length} inquilinos.</p><div class="filas">${g.partes.map((x) => `<div class="fila-l"><span><b data-notr>${h(x.inquilino)}</b><br><span class="sub">${x.pendiente ? `${h(Idioma.t('Debe'))} ${eur(x.pendiente)}` : h(Idioma.t('Ya ha pagado'))} · ${eur(x.importe)}</span></span>${x.pendiente ? `<span class="der"><button class="btn pri peq" data-a="cobrarGasto" data-id="${i}" data-c="${x.contratoId}">Cobrar</button><button class="btn peq" data-a="avisarGasto" data-id="${i}" data-c="${x.contratoId}">Avisar</button></span>` : ''}</div>`).join('')}</div>
+        ${rs.map((r) => `<div class="tar${r.anulado ? ' apagada' : ''}"><div class="fila"><span>${fecha(r.fecha)} · <span data-notr>${h((g.partes.find((x) => x.contratoId === r.contratoId) || {}).inquilino || '')}</span>${r.anulado ? ' · anulado' : ''}</span><span class="imp">${eur(r.importe)}</span></div>${r.anulado ? '' : `<div class="acc"><button class="btn peq rojo" data-a="anularReembolso" data-id="${r.id}" data-g="${i}">Anular</button></div>`}</div>`).join('')}` : ''}
+      ${g.repercutir > 0 && !g.anulado && !g.partes ? `<h3>Cobro al inquilino</h3><p class="sub">${h(g.inquilino)} debe pagarte ${eur(g.repercutir)}. Cobrado: ${eur(g.cobrado)}.</p>
         ${rs.map((r) => `<div class="tar${r.anulado ? ' apagada' : ''}"><div class="fila"><span>${fecha(r.fecha)}${r.anulado ? ' · anulado' : ''}</span><span class="imp">${eur(r.importe)}</span></div>${r.anulado ? '' : `<div class="acc"><button class="btn peq rojo" data-a="anularReembolso" data-id="${r.id}" data-g="${i}">Anular</button></div>`}</div>`).join('')}
         ${g.porCobrar > 0 ? `<div class="acc"><button class="btn pri" data-a="cobrarGasto" data-id="${i}">Registrar cobro</button><button class="btn" data-a="avisarGasto" data-id="${i}">Avisar al inquilino</button></div>` : ''}` : ''}
       ${docsHtml('gasto', i)}
@@ -611,7 +637,7 @@
     for (const img of el.querySelectorAll('img[data-arch]')) Adjuntos.url(img.dataset.arch).then((u) => { if (u) img.src = u; }).catch(() => {});
   }
   function abrirPadre(tipo, id) { ({ inmueble: fichaInmueble, contrato: fichaContrato, gasto: fichaGasto, inquilino: (x) => formInquilino(por(S.inquilinos, x)) })[tipo](id); }
-  document.addEventListener('change', (e) => { const f = e.target.dataset && e.target.dataset.filtro; if (!f) return; const v = e.target.value; V.filtros[f] = !v ? undefined : /Id$/.test(f) ? Number(v) : v; });
+  document.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.titular != null) { V.titular = e.target.value || undefined; pinta(); return; } const f = e.target.dataset && e.target.dataset.filtro; if (!f) return; const v = e.target.value; V.filtros[f] = !v ? undefined : /Id$/.test(f) ? Number(v) : v; });
   document.addEventListener('change', async (e) => {
     const inp = e.target; if (!inp.dataset || !inp.dataset.adjuntar || !inp.files[0]) return;
     const [tipo, id] = inp.dataset.adjuntar.split(':'), f = inp.files[0];
@@ -723,11 +749,13 @@
     gastoPagado(i) { haz(() => MA.confirmarGasto(S, i, {}, HOY), () => toast('Gasto marcado como pagado', 'Deshacer', () => haz(() => MA.desconfirmarGasto(S, i, 'Marcado por error', HOY)))); },
     desconfirmar(i) { haz(() => MA.desconfirmarGasto(S, i, 'Recibo devuelto o marcado por error', HOY), () => fichaGasto(i)); },
     anularGasto(i) { confirma('Anular el gasto', 'Dejará de contar en las cuentas, pero seguirá visible como anulado.', 'Anular', (m) => haz(() => MA.anularGasto(S, i, m, HOY), () => fichaGasto(i)), true); },
-    cobrarGasto(i) { const g = MA.gastos(S, HOY, (x) => x.id === i)[0], k = clave(); formulario({ titulo: 'Cobro de ' + g.concepto, valores: { importe: g.porCobrar, fecha: HOY }, defs: [{ k: 'importe', e: 'Importe recibido', t: 'dinero', req: 1 }, { k: 'fecha', e: 'Fecha', t: 'date' }],
-      alGuardar: (d) => { if (d.importe == null) throw Object.assign(new Error('Indica el importe'), { code: 'IMPORTE' }); return MA.registrarReembolso(S, { gastoId: i, ...d, clave: k }, HOY); }, despues: () => fichaGasto(i) }); },
+    cobrarGasto(i, el) { const g = MA.gastos(S, HOY, (x) => x.id === i)[0], k = clave(), c = el && el.dataset.c ? Number(el.dataset.c) : null, x = c && g.partes ? g.partes.find((y) => y.contratoId === c) : null;
+      formulario({ titulo: x ? `${g.concepto} · ${x.inquilino}` : 'Cobro de ' + g.concepto, valores: { importe: x ? x.pendiente : g.porCobrar, fecha: HOY }, defs: [{ k: 'importe', e: 'Importe recibido', t: 'dinero', req: 1 }, { k: 'fecha', e: 'Fecha', t: 'date' }],
+      alGuardar: (d) => { if (d.importe == null) throw Object.assign(new Error('Indica el importe'), { code: 'IMPORTE' }); return MA.registrarReembolso(S, { gastoId: i, ...d, contratoId: c == null ? undefined : c, clave: k }, HOY); }, despues: () => fichaGasto(i) }); },
     anularReembolso(i, el) { haz(() => MA.anularReembolso(S, i, 'Anulado', HOY), () => fichaGasto(+el.dataset.g)); },
-    avisarGasto(i) { const g = MA.gastos(S, HOY, (x) => x.id === i)[0];
-      enviar('Mensaje a ' + g.inquilino, g.telefono, texto('gasto', g.contratoId ? por(S.inquilinos, (por(S.contratos, g.contratoId) || {}).inquilinoId) : null, { nombre: pila(g.inquilino), inmueble: g.inmueble, concepto: g.concepto, periodo: g.periodo, importe: eur(g.porCobrar) }), () => { por(S.gastos, i).recordatorio = HOY; guardar(); }); },
+    avisarGasto(i, el) { const g = MA.gastos(S, HOY, (x) => x.id === i)[0], c = el && el.dataset.c ? Number(el.dataset.c) : null, x = c && g.partes ? g.partes.find((y) => y.contratoId === c) : null;
+      const nom = x ? x.inquilino : g.inquilino, tel = x ? x.telefono : g.telefono, cid = x ? x.contratoId : g.contratoId;
+      enviar('Mensaje a ' + nom, tel, texto('gasto', cid ? por(S.inquilinos, (por(S.contratos, cid) || {}).inquilinoId) : null, { nombre: pila(nom), inmueble: g.inmueble, concepto: g.concepto, periodo: g.periodo, importe: eur(x ? x.pendiente : g.porCobrar) }), () => { por(S.gastos, i).recordatorio = HOY; guardar(); }); },
     misDatos() { formulario({ titulo: 'Mis datos', valores: S.ajustes, defs: [{ k: 'propietario', e: 'Tu nombre (firma de los mensajes y los recibos)' }, { k: 'dni', e: 'Tu DNI/NIF (aparece en los recibos)' }, { k: 'domicilio', e: 'Tu domicilio (opcional, para los recibos)' }, { k: 'formaPago', e: 'Forma de pago que indicas al inquilino', ayuda: 'Por ejemplo: Bizum al 600 000 000 o transferencia a ES00…' }], alGuardar: (d) => Object.assign(S.ajustes, d) }); },
     plantillas() { const n = { cobro: 'Recordatorio de cobro', atraso: 'Pago atrasado (a los 3 días)', atraso2: 'Pago atrasado (a los 10 días)', recibo: 'Confirmación de pago', recibo_pdf: 'Envío del recibo en PDF', gasto: 'Cobro de un gasto', vencimiento: 'Vencimiento de contrato', actualizacion: 'Actualización anual de la renta' };
       const l = Idioma.actual, val = Object.fromEntries(Object.keys(n).map((k) => [k, plantilla(k, l)]));
@@ -741,6 +769,26 @@
         alGuardar: (d) => { S.ajustes.avisos = d.avisos; S.ajustes.horaAvisos = Number(d.horaAvisos); if (d.avisos) Avisos.permiso(true).then((ok) => { if (!ok) { S.ajustes.avisos = false; guardar(); pinta(); toast('Android no ha dado permiso para mostrar avisos'); } else guardar(); }); } }); },
     async copia() { try { const c = confCopias(); if (c.adjuntos && S.adjuntos.length) toast('Preparando la copia…'); const k = await crearCopia(c.adjuntos);
       await Archivos.compartirBytes(k.nombre, k.bytes, k.mime); S.ajustes.ultimaCopia = HOY; guardar(); pinta(); toast('Copia preparada'); } catch (e) { toast('No se ha guardado la copia'); } },
+    async seguridad() {
+      if (!Bloqueo.disponible) return toast('El bloqueo está disponible en la app de Android');
+      const b = leerBloq();
+      formulario({ titulo: 'Bloqueo con huella o PIN', valores: { activo: b.activo, minutos: b.minutos, ocultar: b.ocultar },
+        defs: [{ html: '<p class="sub">Usa el mismo método con el que desbloqueas el móvil: huella, cara, PIN, patrón o contraseña. La app no guarda ninguna clave.</p>' },
+          { k: 'activo', t: 'check', e: 'Pedir huella o PIN al abrir la app' },
+          { k: 'minutos', e: 'Volver a pedirlo si sales de la app durante', t: 'select', op: [[0, 'Al momento'], [1, '1 minuto'], [5, '5 minutos'], [15, '15 minutos'], [60, '1 hora']] },
+          { k: 'ocultar', t: 'check', e: 'Ocultar el contenido en apps recientes y en capturas de pantalla' }],
+        alGuardar: async (d) => {
+          const n = { activo: !!d.activo, minutos: Number(d.minutos) || 0, ocultar: !!d.ocultar };
+          if (n.activo) {
+            const e = await Bloqueo.estado();
+            if (!e.disponible) throw Object.assign(new Error(e.motivo === 'SIN_BLOQUEO' ? 'Primero pon un bloqueo de pantalla en el móvil (huella o PIN) en los ajustes de Android.' : 'Este móvil no permite usar el bloqueo.'), { code: 'BLOQUEO' });
+            if (!b.activo) { pidiendo = true; try { await Bloqueo.autenticar(Idioma.t('Confirma que eres tú')); } catch (x) { throw Object.assign(new Error('No se ha confirmado la huella o el PIN'), { code: 'BLOQUEO' }); } finally { pidiendo = false; } }
+          }
+          try { localStorage.setItem('ma.bloqueo', JSON.stringify(n)); } catch (x) { /* */ }
+          Bloqueo.proteger(n.ocultar);
+        },
+        despues: () => { toast(leerBloq().activo ? 'Bloqueo activado' : 'Bloqueo desactivado'); pinta(); } });
+    },
     async copiasConf() { if (!Archivos.enMovil && !Drive.disponible) return toast('Las copias automáticas están disponibles en la app de Android');
       const c = confCopias(), l = await Archivos.copiasEnMovil(), kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
       formulario({ titulo: 'Copias automáticas', valores: { frecuencia: FREC[c.frecuencia] ? c.frecuencia : 'nunca', adjuntos: c.adjuntos, guardar: c.guardar },
@@ -823,15 +871,23 @@
         .catch(() => toast('No se ha enviado el recibo')); if (!S.ajustes.dni && !S.ajustes.propietario) toast('Pon tu nombre y DNI en Ajustes › Mis datos para que salgan en el recibo'); } catch (e) { fallo(e); } },
     // 4. Extracto del banco
     extracto() { hoja('Extracto del banco', `<p>Descarga desde la web o la app de tu banco los movimientos de la cuenta donde cobras, en <b>Excel (.xlsx)</b> o <b>CSV</b>, y elígelo aquí. La app buscará qué transferencias y Bizum corresponden a cada recibo y qué cargos son tus gastos domiciliados.</p>
-      <label class="f">Archivo del extracto<input type="file" id="fext" accept=".csv,.xlsx,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><p class="sub">Nada se apunta hasta que lo revises y confirmes. Los movimientos ya importados se reconocen y no se duplican.</p>`, (el) => {
+      <label class="f">Archivo del extracto<input type="file" id="fext" accept=".csv,.xlsx,.txt,.n43,.aeb,.q43,.c43,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><p class="sub">Nada se apunta hasta que lo revises y confirmes. Los movimientos ya importados se reconocen y no se duplican.</p>`, (el) => {
       $('#fext', el).onchange = async (e) => { const f = e.target.files[0]; if (!f) return;
-        try { const movs = Tablas.extracto(await Tablas.leerArchivo(f.name, await f.arrayBuffer())); revisarExtracto(MA.conciliar(S, movs, HOY)); } catch (x) { toast(x.message || 'No se ha podido leer el archivo'); } }; }); },
+        try { const movs = await Tablas.leerExtracto(f.name, await f.arrayBuffer()); revisarExtracto(MA.conciliar(S, movs, HOY)); } catch (x) { toast(x.message || 'No se ha podido leer el archivo'); } }; }); },
     // 5. Renta
     anioRenta(_, el) { V.renta += +el.dataset.d; pinta(); },
-    rentaPdf() { Archivos.compartirBytes(`renta-${V.renta}.pdf`, PDF.renta(MA.informeRenta(S, V.renta, HOY), S.ajustes.propietario, { t: Idioma.t, acento: leerAp().acento }), 'application/pdf').catch(() => toast('No se ha podido crear el PDF')); },
-    rentaCsv() { Archivos.compartir(`renta-${V.renta}.csv`, MA.csvRenta(MA.informeRenta(S, V.renta, HOY)), 'text/csv').catch(() => toast('No se ha podido exportar')); },
-    datosFiscales(i) { const p = por(S.inmuebles, i); formulario({ titulo: 'Datos de ' + p.nombre, valores: p, defs: [{ k: 'referencia', e: 'Referencia catastral' }, ...D_INMUEBLE.filter((d) => ['valorCatastral', 'valorCatastralConstruccion', 'imputacionPct', 'compraPrecio', 'compraGastos', 'compraFecha'].includes(d.k))],
-      alGuardar: (d) => MA.editarInmueble(S, i, d) }); },
+    rentaPdf() { const inf = informe(); Archivos.compartirBytes(`renta-${V.renta}${inf.titular && !inf.titular.yo ? '-' + inf.titular.nombre.toLowerCase().replace(/\s+/g, '-') : ''}.pdf`, PDF.renta(inf, inf.titular && !inf.titular.yo ? inf.titular.nombre : S.ajustes.propietario, { t: Idioma.t, acento: leerAp().acento }), 'application/pdf').catch(() => toast('No se ha podido crear el PDF')); },
+    rentaCsv() { Archivos.compartir(`renta-${V.renta}.csv`, MA.csvRenta(informe()), 'text/csv').catch(() => toast('No se ha podido exportar')); },
+    datosFiscales(i) { const p = por(S.inmuebles, i), ts = MA.partes(p), yo = ts.find((x) => x.yo), otros = ts.filter((x) => !x.yo);
+      const v = { ...p, miPct: yo ? yo.pct : 0 }; otros.slice(0, 3).forEach((x, n) => { v[`c${n}Nombre`] = x.nombre; v[`c${n}Nif`] = x.nif; v[`c${n}Pct`] = x.pct; });
+      const co = (n) => [{ k: `c${n}Nombre`, e: `Otro titular ${n + 1}: nombre` }, { html: '<div class="dos">' }, { k: `c${n}Nif`, e: 'DNI/NIF' }, { k: `c${n}Pct`, e: 'Porcentaje', t: 'num' }, { html: '</div>' }];
+      formulario({ titulo: 'Datos de ' + p.nombre, valores: v, defs: [{ k: 'referencia', e: 'Referencia catastral' }, ...D_INMUEBLE.filter((d) => ['valorCatastral', 'valorCatastralConstruccion', 'imputacionPct', 'compraPrecio', 'compraGastos', 'compraFecha'].includes(d.k)),
+        { h: 'Titulares' }, { html: '<p class="sub">Si el inmueble es de varias personas (por ejemplo, un matrimonio al 50 %), indica la parte de cada uno. El informe de la Renta se podrá sacar por titular.</p>' },
+        { k: 'miPct', e: 'Tu parte (%)', t: 'num' }, { det: 'Otros titulares' }, ...co(0), ...co(1), ...co(2), { detFin: 1 }],
+        alGuardar: (d) => { const l = [{ yo: true, nombre: '', nif: '', pct: d.miPct == null ? 100 : Number(d.miPct) }].filter((x) => x.pct > 0);
+          for (const n of [0, 1, 2]) if (d[`c${n}Nombre`]) l.push({ nombre: d[`c${n}Nombre`], nif: d[`c${n}Nif`] || '', pct: Number(d[`c${n}Pct`]) || 0 });
+          const x = { ...d }; for (const k of Object.keys(x)) if (/^(miPct|c\dNombre|c\dNif|c\dPct)$/.test(k)) delete x[k];
+          return MA.editarInmueble(S, i, { ...x, titulares: l.length === 1 && l[0].yo && l[0].pct === 100 ? [] : l }); } }); },
     // 6. Actualización anual
     actualizar(i) { const ct = por(S.contratos, i), u = MA.actualizacionPendiente(S, ct, HOY); if (!u) return fichaContrato(i);
       const q = por(S.inquilinos, ct.inquilinoId), p = por(S.inmuebles, ct.inmuebleId);
@@ -870,6 +926,21 @@
     compartirDoc(i) { Adjuntos.compartir(por(S.adjuntos, i)).catch(() => toast('No se ha podido abrir')); },
     volverDoc(i) { const a = por(S.adjuntos, i); abrirPadre(a.tipo, a.refId); },
     borrarDoc(i) { const a = por(S.adjuntos, i); confirma('Eliminar documento', `Se eliminará «${a.nombre}» de la app.`, 'Eliminar', () => { const arch = MA.quitarAdjunto(S, i); Adjuntos.borrar(arch); guardar(); abrirPadre(a.tipo, a.refId); }); },
+    ejemplo() {
+      const s = MA.nuevo(), H = HOY, m = (n) => MA.masMeses(H.slice(0, 7) + '-01', n); s.pro = true; s.ejemplo = true; s.ajustes.propietario = 'María Santana Perdomo';
+      const a = MA.crearInmueble(s, { nombre: 'Piso Calle Real 4', tipo: 'Vivienda', direccion: 'C/ Real 4, 2.º B, Arrecife', compraPrecio: 12000000, compraFecha: '2018-03-15' }, H);
+      const b = MA.crearInmueble(s, { nombre: 'Plaza de garaje 12', tipo: 'Plaza de garaje', direccion: 'Edif. Las Palmeras, sótano' }, H);
+      const c = MA.crearInmueble(s, { nombre: 'Trastero 3', tipo: 'Trastero' }, H);
+      const qa = MA.crearInquilino(s, { nombre: 'Ana Pérez Gil', telefono: '600111222' }), qb = MA.crearInquilino(s, { nombre: 'Luis Gómez' }), qc = MA.crearInquilino(s, { nombre: 'Marta Cabrera' });
+      MA.crearContrato(s, { inmuebleId: a.id, inquilinoId: qa.id, inicio: m(-14), importe: 75000, fianza: 75000, diaCobro: 1 }, H);
+      MA.crearContrato(s, { inmuebleId: b.id, inquilinoId: qb.id, inicio: m(-6), importe: 6000, diaCobro: 5 }, H);
+      MA.crearContrato(s, { inmuebleId: c.id, inquilinoId: qc.id, inicio: m(-3), importe: 4000, diaCobro: 10 }, H);
+      for (const cg of s.cargos) if (cg.periodo < m(-1).slice(0, 7) || cg.contratoId === 2) MA.registrarPago(s, { cargoId: cg.id, importe: cg.importe, fecha: cg.vence > H ? H : cg.vence, metodo: 'Bizum' }, H);
+      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'Comunidad', categoria: 'comunidad', periodicidad: 'mensual', importe: 4550, dia: 5, domiciliado: true }, H);
+      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'IBI', categoria: 'impuesto', periodicidad: 'anual', mesInicio: 9, importe: 38000 }, H);
+      s.pro = S.pro; S = s; alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Datos de ejemplo cargados');
+    },
+    finEjemplo() { confirma('Borrar el ejemplo', 'Se borrarán los datos de ejemplo y la app quedará lista para tus inmuebles.', 'Borrar y empezar', () => { const pro = S.pro; S = MA.nuevo(); S.pro = pro; guardar(); location.hash = '#inicio'; pinta(); }); },
     borrarTodo() { confirma('Borrar todos los datos', 'Se eliminarán inmuebles, inquilinos, contratos, cobros y gastos de este dispositivo. No se puede deshacer: guarda antes una copia si los quieres conservar.', 'Borrar todo', () => { const pro = S.pro; S = MA.nuevo(); S.pro = pro; guardar(); location.hash = '#inicio'; pinta(); toast('Datos borrados'); }); },
   };
   const AYUDA = `<h3>Cómo funciona</h3><p>Añade un <b>inmueble</b>, su <b>inquilino</b> y el <b>contrato</b>. Cada mes la app crea el recibo de alquiler. Cuando te paguen, pulsa <b>Cobrado</b> o abre el recibo para apuntar un pago parcial.</p>
@@ -878,13 +949,16 @@
     <h3>Nada se pierde</h3><p>Los cobros y gastos no se borran: se anulan y quedan en el historial. Lo marcado como «estimado» es lo anterior a empezar a usar la app.</p>
     <h3>Mensajes y recibos</h3><p>La app prepara el texto y abre WhatsApp; el mensaje lo envías tú. Al marcar «Cobrado» puedes enviar al inquilino el <b>recibo en PDF</b>, numerado. Si se retrasa, a los 3 y a los 10 días te propone un recordatorio, cada vez más firme.</p>
     <h3>Desde la notificación</h3><p>Con los avisos activados, el día de cobro puedes pulsar <b>Cobrado</b> en la propia notificación.</p>
-    <h3>Extracto del banco</h3><p>En Cobros o en Más, elige el extracto (Excel o CSV) y la app propone qué ingresos son de cada recibo y qué cargos son tus gastos domiciliados. Revisas y confirmas; nada se apunta solo.</p>
+    <h3>Extracto del banco</h3><p>En Cobros o en Más, elige el extracto del banco (Norma 43, Excel o CSV) y la app propone qué ingresos son de cada recibo y qué cargos son tus gastos domiciliados. Revisas y confirmas; nada se apunta solo.</p>
     <h3>Renta</h3><p>Más › Informe para la Renta resume por inmueble los ingresos, los gastos deducibles, la amortización y la reducción. Para la amortización y la imputación de días vacíos necesita el valor catastral (está en el recibo del IBI). Es orientativo: revísalo antes de presentar.</p>
     <h3>Subida anual y fianza</h3><p>La app te avisa cuando toca actualizar la renta (IRAV o IPC, según el contrato), cuando hay que depositar la fianza y cuando hay que devolverla tras la entrega de llaves.</p>
     <h3>Tus datos</h3><p>Están solo en este dispositivo. La app hace copias automáticas en el móvil (Más › Ajustes y copias › Copias automáticas), con los documentos y fotos si lo eliges. De vez en cuando, envía una a Drive o a tu correo por si pierdes el móvil.</p>
+    <h3>Varios titulares</h3><p>Si un inmueble es de varias personas, indica la parte de cada una en sus datos catastrales y de compra. El informe de la Renta se puede sacar por titular.</p>
+    <h3>Habitaciones</h3><p>Si un inmueble se alquila por habitaciones, los gastos que cobras a los inquilinos (luz, agua, internet…) se reparten a partes iguales entre los que haya ese mes, y cada uno paga su parte.</p>
+    <h3>Bloqueo</h3><p>En Más › Ajustes y copias puedes pedir la huella o el PIN del móvil al abrir la app.</p>
     <h3>Cuentas orientativas</h3><p>Las cifras del panel son un resumen de lo que has apuntado. No sustituyen a tu contabilidad ni a un asesor fiscal.</p>`;
   const PRIVACIDAD = `<p>Mis alquileres guarda todos los datos <b>solo en este dispositivo</b>. No hay cuentas, no se envía nada a servidores de IT Canarias ni de terceros, y no hay publicidad ni seguimiento.</p>
-    <p>Los datos de tus inquilinos (nombre, teléfono, DNI) los introduces tú y eres responsable de ellos. Salen del dispositivo únicamente cuando tú compartes una copia, una exportación o un mensaje.</p>
+    <p>Los datos de tus inquilinos (nombre, teléfono, DNI) los introduces tú y eres responsable de ellos. Salen del dispositivo únicamente cuando tú compartes una copia, una exportación o un mensaje, o cuando activas las copias en tu propio Google Drive.</p>
     <p>La compra de la versión completa la gestiona Google Play; la app solo recibe si está comprada. Para borrar todos los datos usa «Borrar todos los datos» o desinstala la app.</p>
     <p class="sub">IT Canarias · itcanarias.com</p>`;
 
