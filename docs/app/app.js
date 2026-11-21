@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.8.1';
+  const APP_VERSION = '1.8.2';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -53,7 +53,7 @@
     }, 300);
   }
   // ---------- Bloqueo con huella o PIN (se guarda en el propio móvil, no va en las copias) ----------
-  const BLOQ_DEF = { activo: false, minutos: 1, ocultar: false };
+  const BLOQ_DEF = { activo: false, minutos: 1, ocultar: false, widgetImportes: false };
   const leerBloq = () => { try { return { ...BLOQ_DEF, ...JSON.parse(localStorage.getItem('ma.bloqueo') || '{}') }; } catch (e) { return { ...BLOQ_DEF }; } };
   let bloqueada = false, salida = 0, pidiendo = false;
   function bloquear() { if (!Bloqueo.disponible || !leerBloq().activo) return; bloqueada = true; $('#candado').hidden = false; document.body.classList.add('bloqueada'); desbloquear(); }
@@ -134,18 +134,28 @@
       inmueble: { nombre: p.nombre, direccion: p.direccion || '', referencia: p.referencia || '', superficie: p.superficie || null, descripcion: p.descripcion || '' },
       inicio: ct.inicio, fin: ct.fin, anios: Number(o.anios) || 1, renta, rentaLetras: MA.eurosLetras(renta), diaPago: ct.diaCobro, formaPago: S.ajustes.formaPago || '', fianza: ct.fianza || 0, fianzaLetras: ct.fianza ? MA.eurosLetras(ct.fianza) : '',
       garantia: o.garantia || 0, actualizacion: ct.actualizacion || 'ipc', actualizacionPct: ct.actualizacionPct, gastos, impuesto: ct.impuesto && ct.impuesto !== 'ninguno' ? { nombre: MA.IMPUESTOS[ct.impuesto].nombre, pct: ct.impuestoPct != null ? ct.impuestoPct : MA.IMPUESTOS[ct.impuesto].pct } : null,
-      retencion: !!ct.retencion, amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
+      retencion: !!ct.retencion, retPct: MA.tipoEn(S, 'ret', HOY.slice(0, 7)), amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
   }
-  // Widget: lo que te deben y lo cobrado este mes. Con el bloqueo activado no enseña importes.
+  // Widget: lo que te deben y lo cobrado este mes. Con el bloqueo activado enseña recuentos sin importes (salvo que se pida verlos).
   function actualizarWidget() {
     if (!Widget.disponible) return;
     try {
       if (S.ejemplo) return;
-      if (leerBloq().activo) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Bloqueada'), linea2: Idioma.t('Abre la app para ver el resumen') });
       if (!S.contratos.length) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Abre la app'), linea2: Idioma.t('Empieza en un minuto') });
-      const m = MA.panel(S, HOY), d = deudas().reduce((t, x) => t + x.total, 0);
-      Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: d ? Idioma.t(`Te deben ${eur(d)}`) : Idioma.t('Todo cobrado'),
-        linea2: Idioma.t(`Cobrado en ${fmes(m.mes)}: ${eur(m.mesActual.cobrado)} de ${eur(m.mesActual.esperado)}`) });
+      const b = leerBloq(), cifras = !b.activo || b.widgetImportes, m = MA.panel(S, HOY), dd = deudas(), d = dd.reduce((t, x) => t + x.total, 0);
+      const mes = MA.cargos(S, HOY, (x) => !x.anulado && x.periodo === m.mes), cobr = mes.filter((x) => x.estado === 'pagado').length;
+      const prox = MA.cargos(S, HOY, (x) => !x.anulado).filter((x) => x.estado !== 'pagado' && x.vence >= HOY).sort((a, c) => (a.vence < c.vence ? -1 : 1))[0];
+      const dia = prox ? (prox.vence === HOY ? Idioma.t('hoy') : Idioma.t(`el día ${+prox.vence.slice(8, 10)}`)) : '';
+      let l1, l2;
+      if (cifras) {
+        l1 = d ? Idioma.t(`Te deben ${eur(d)}`) : Idioma.t('Todo cobrado');
+        l2 = Idioma.t(`Cobrado en ${fmes(m.mes)}: ${eur(m.mesActual.cobrado)} de ${eur(m.mesActual.esperado)}`);
+      } else {
+        l1 = !dd.length ? Idioma.t('Todo cobrado') : dd.length === 1 ? Idioma.t('1 inquilino te debe') : Idioma.t(`${dd.length} inquilinos te deben`);
+        l2 = Idioma.t(`Cobrados ${cobr} de ${mes.length} recibos de ${fmes(m.mes)}`);
+      }
+      if (prox) l2 += ' · ' + Idioma.t(`próximo cobro ${dia}`);
+      Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: l1, linea2: l2 });
     } catch (e) { /* el widget es opcional */ }
   }
   const esIOSNavegador = () => { try { return !NATIVO && /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone && !matchMedia('(display-mode: standalone)').matches && localStorage.getItem('ma.ios') !== '1'; } catch (e) { return false; } };
@@ -450,7 +460,7 @@
           <div class="acc"><button class="btn peq" data-a="datosFiscales" data-id="${x.id}">Datos catastrales y de compra</button></div></div></section>`).join('') || vacio('Sin datos de ese año', 'No hay inmuebles en propiedad ese año.')}`;
     },
     ajustes() {
-      return `${sec('Tus datos y avisos', '', `<div class="lista">${item('misDatos', 'usuario', 'Mis datos', S.ajustes.propietario || 'Tu nombre y DNI para mensajes y recibos')}${item('plantillas', 'mensaje', 'Mensajes', 'Textos de los avisos por WhatsApp')}
+      return `${sec('Tus datos y avisos', '', `<div class="lista">${item('misDatos', 'usuario', 'Mis datos', S.ajustes.propietario || 'Tu nombre y DNI para mensajes y recibos')}${item('modelosContrato', 'informe', 'Modelos de contrato', S.ajustes.modelos && Object.values(S.ajustes.modelos).some(Boolean) ? 'Con tus cambios' : 'Los de la app, sin cambios')}${item('plantillas', 'mensaje', 'Mensajes', 'Textos de los avisos por WhatsApp')}
           ${item('avisosConf', 'campana', 'Avisos en el móvil', !Avisos.disponible ? 'Disponibles en la app de Android' : S.ajustes.avisos ? `Activados, a las ${S.ajustes.horaAvisos || 9}:00` : 'Desactivados')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}${item('seguridad', 'candado', 'Bloqueo con huella o PIN', !Bloqueo.disponible ? 'Disponible en la app de Android' : leerBloq().activo ? 'Activado' : 'Desactivado')}</div>`)}
         ${sec('Copia de seguridad', '', `<p class="nota">Tus datos están solo en este móvil. Si lo pierdes o lo cambias, la copia es la forma de recuperarlos.</p>
           <div class="lista">${item('copiasConf', 'reloj', 'Copias automáticas', resumenCopias())}${item('copia', 'nube', 'Guardar una copia ahora', S.ajustes.ultimaCopia ? 'Para Drive o el correo. Última: ' + fecha(S.ajustes.ultimaCopia) : 'Para Drive o el correo')}${item('restaurar', 'bajar', 'Recuperar una copia', 'Sustituye los datos actuales')}</div>
@@ -837,6 +847,52 @@
       s.pro = S.pro; if (conDatos) s.ejemploGuardado = true; S = s; alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Datos de ejemplo cargados');
     }
   }
+  // Editor del texto del contrato: cada cláusula se puede cambiar, quitar o añadir; los cambios pueden pasar al modelo de ese tipo.
+  function editorContrato(i, o) {
+    const ct = por(S.contratos, i), p = por(S.inmuebles, ct.inmuebleId) || {}, q = por(S.inquilinos, ct.inquilinoId) || {};
+    const d = datosContrato(ct, p, q, o), base = Documentos.secciones(Documentos.contrato(d)), tipo = o.tipo, modelos = S.ajustes.modelos || (S.ajustes.modelos = {});
+    const delModelo = Documentos.aplicarModelo(base, modelos[tipo], d), guardado = ct.docTexto && ct.docTexto.tipo === tipo ? ct.docTexto : null;
+    let sec = JSON.parse(JSON.stringify(guardado ? { ...delModelo, cabecera: guardado.cabecera, clausulas: guardado.clausulas } : delModelo)), usarModelo = false, formato = o.formato || 'pdf';
+    const nomTipo = Idioma.t(Documentos.TIPOS[tipo]);
+    const pintaEd = () => hoja('Revisa y edita el contrato', `
+      <p class="sub">${h(Idioma.t('Puedes cambiar cualquier texto, quitar cláusulas o añadir las tuyas. Deja una línea en blanco entre párrafos.'))}</p>
+      ${guardado ? `<div class="nota">${h(Idioma.t('Estás viendo el texto que ya editaste para este contrato. Si has cambiado datos (renta, fechas, opciones), vuelve al modelo para que se actualicen.'))}<div class="acc"><button type="button" class="btn peq" data-e="modelo">${h(Idioma.t('Volver al modelo'))}</button></div></div>`
+        : modelos[tipo] ? `<p class="nota">${h(Idioma.t(`Incluye tus cambios del modelo de ${nomTipo}.`))}</p>` : ''}
+      <details class="mas-op"><summary>${h(Idioma.t('Encabezamiento: partes e inmueble'))}</summary><label class="f"><textarea data-cab rows="10">${h(sec.cabecera)}</textarea></label></details>
+      ${sec.clausulas.map((c, k) => `<div class="clausula" data-k="${k}"><div class="cl-cab"><span>${k + 1}.</span><input data-t value="${h(c.titulo)}" placeholder="${h(Idioma.t('Nueva cláusula'))}" aria-label="${h(Idioma.t('Título de la cláusula'))}"><button type="button" class="btn txt peq rojo" data-e="quitar" data-k="${k}">${h(Idioma.t('Quitar'))}</button></div>
+        <textarea data-x placeholder="${h(Idioma.t('Texto de la cláusula'))}" rows="${Math.min(14, Math.max(3, Math.ceil(c.texto.length / 42)))}">${h(c.texto)}</textarea></div>`).join('')}
+      <button type="button" class="btn ancho" data-e="nueva">+ ${h(Idioma.t('Añadir cláusula'))}</button>
+      <div class="esp"></div>
+      <label class="f chk"><input type="checkbox" data-modelo${usarModelo ? ' checked' : ''}><span>${h(Idioma.t(`Usar estos cambios en los próximos contratos de ${nomTipo}`))}<small>${h(Idioma.t('Los datos de cada contrato (nombres, renta, fechas…) se cambian solos. En tus textos puedes escribir'))} ${Documentos.MARCAS.map((x) => `{${x}}`).join(' ')}</small></span></label>
+      <label class="f">${h(Idioma.t('Formato'))}<select data-formato><option value="pdf"${formato === 'pdf' ? ' selected' : ''}>PDF</option><option value="docx"${formato === 'docx' ? ' selected' : ''}>${h(Idioma.t('Word (.docx), para editarlo'))}</option></select></label>
+      <button type="button" class="btn pri ancho" data-e="crear">${h(Idioma.t('Crear el contrato'))}</button>`, (el) => {
+      const leerEd = () => { const c = $('[data-cab]', el); if (c) sec.cabecera = c.value; sec.clausulas = [...el.querySelectorAll('.clausula')].map((x) => ({ titulo: $('[data-t]', x).value.trim(), texto: $('[data-x]', x).value }));
+        usarModelo = $('[data-modelo]', el).checked; formato = $('[data-formato]', el).value; };
+      el.onclick = (e) => {
+        const b = e.target.closest('[data-e]'); if (!b) return; leerEd();
+        const acc = b.dataset.e;
+        if (acc === 'quitar') { sec.clausulas.splice(+b.dataset.k, 1); pintaEd(); }
+        else if (acc === 'nueva') { const iO = sec.clausulas.findIndex((c) => c.titulo === 'Otros pactos'); sec.clausulas.splice(iO >= 0 ? iO : sec.clausulas.length, 0, { titulo: '', texto: '' }); pintaEd(); const t = el.querySelectorAll('.clausula [data-t]')[iO >= 0 ? iO : sec.clausulas.length - 1]; if (t) { t.focus(); t.scrollIntoView({ block: 'center' }); } }
+        else if (acc === 'modelo') { delete ct.docTexto; guardar(); editorContrato(i, o); }
+        else if (acc === 'crear') crear();
+      };
+    });
+    const crear = () => {
+      const limpio = { ...sec, clausulas: sec.clausulas.filter((c) => c.titulo || c.texto.trim()) };
+      const igual = (a, b) => JSON.stringify([a.cabecera, a.clausulas]) === JSON.stringify([b.cabecera, b.clausulas]);
+      if (usarModelo) { const m = Documentos.crearModelo(base, limpio, d); if (m) modelos[tipo] = m; else delete modelos[tipo]; }
+      const referencia = Documentos.aplicarModelo(base, modelos[tipo], d);
+      if (igual(limpio, referencia)) delete ct.docTexto; else ct.docTexto = { tipo, cabecera: limpio.cabecera, clausulas: limpio.clausulas };
+      ct.docOpciones = { ...(ct.docOpciones || {}), formato }; guardar();
+      const doc = Documentos.desdeSecciones(limpio), nombre = `contrato-${(q.nombre || 'inquilino').toLowerCase().replace(/\s+/g, '-')}`;
+      (formato === 'docx' ? Archivos.compartirBytes(nombre + '.docx', Documentos.docx(doc, Exportar.zip), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        : Archivos.compartirBytes(nombre + '.pdf', Documentos.pdfContrato(doc, { acento: leerAp().acento }), 'application/pdf')).catch(() => toast('No se ha podido crear el contrato'));
+      cerrar(); fichaContrato(i);
+      if (usarModelo) toast(Idioma.t(`Modelo de ${nomTipo} guardado`));
+      else if (!S.ajustes.dni || !q.dni) toast(!S.ajustes.dni ? 'Pon tu DNI en Ajustes › Mis datos para que salga en el contrato' : 'Falta el DNI del inquilino: añádelo en su ficha');
+    };
+    pintaEd();
+  }
   const A = {
     cerrar, ayuda() { hoja('Ayuda', AYUDA); }, pro() { hojaPro(); },
     mes(_, el) { V.mes = MA.mesMas(V.mes, +el.dataset.d); pinta(); }, anio(_, el) { V.anio = String(+V.anio + +el.dataset.d); pinta(); }, verArchivados() { V.archivados = !V.archivados; pinta(); },
@@ -911,13 +967,14 @@
     async seguridad() {
       if (!Bloqueo.disponible) return toast('El bloqueo está disponible en la app de Android');
       const b = leerBloq();
-      formulario({ titulo: 'Bloqueo con huella o PIN', valores: { activo: b.activo, minutos: b.minutos, ocultar: b.ocultar },
+      formulario({ titulo: 'Bloqueo con huella o PIN', valores: { activo: b.activo, minutos: b.minutos, ocultar: b.ocultar, widgetImportes: b.widgetImportes },
         defs: [{ html: '<p class="sub">Usa el mismo método con el que desbloqueas el móvil: huella, cara, PIN, patrón o contraseña. La app no guarda ninguna clave.</p>' },
           { k: 'activo', t: 'check', e: 'Pedir huella o PIN al abrir la app' },
           { k: 'minutos', e: 'Volver a pedirlo si sales de la app durante', t: 'select', op: [[0, 'Al momento'], [1, '1 minuto'], [5, '5 minutos'], [15, '15 minutos'], [60, '1 hora']] },
-          { k: 'ocultar', t: 'check', e: 'Ocultar el contenido en apps recientes y en capturas de pantalla' }],
+          { k: 'ocultar', t: 'check', e: 'Ocultar el contenido en apps recientes y en capturas de pantalla' },
+          { k: 'widgetImportes', t: 'check', e: 'Mostrar importes en el widget', ayuda: 'Con el bloqueo, el widget dice cuántos te deben y cuántos recibos has cobrado, sin cifras. Marca esto si quieres ver también los euros.' }],
         alGuardar: async (d) => {
-          const n = { activo: !!d.activo, minutos: Number(d.minutos) || 0, ocultar: !!d.ocultar };
+          const n = { activo: !!d.activo, minutos: Number(d.minutos) || 0, ocultar: !!d.ocultar, widgetImportes: !!d.widgetImportes };
           if (n.activo) {
             const e = await Bloqueo.estado();
             if (!e.disponible) throw Object.assign(new Error(e.motivo === 'SIN_BLOQUEO' ? 'Primero pon un bloqueo de pantalla en el móvil (huella o PIN) en los ajustes de Android.' : 'Este móvil no permite usar el bloqueo.'), { code: 'BLOQUEO' });
@@ -926,7 +983,7 @@
           try { localStorage.setItem('ma.bloqueo', JSON.stringify(n)); } catch (x) { /* */ }
           Bloqueo.proteger(n.ocultar);
         },
-        despues: () => { toast(leerBloq().activo ? 'Bloqueo activado' : 'Bloqueo desactivado'); pinta(); } });
+        despues: () => { toast(leerBloq().activo ? 'Bloqueo activado' : 'Bloqueo desactivado'); actualizarWidget(); pinta(); } });
     },
     async copiasConf() { if (!Archivos.enMovil && !Drive.disponible) return toast('Las copias automáticas están disponibles en la app de Android');
       const c = confCopias(), l = await Archivos.copiasEnMovil(), kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
@@ -1017,7 +1074,7 @@
       S.actas.push(a); guardar(); fichaActa(a.id); },
     docContrato(i) { const ct = por(S.contratos, i), p = por(S.inmuebles, ct.inmuebleId) || {}, q = por(S.inquilinos, ct.inquilinoId) || {}, o = ct.docOpciones || {};
       const tipo = o.tipo || Documentos.tipoDe(p.tipo, p.porUnidades);
-      formulario({ titulo: 'Contrato para firmar', boton: 'Crear el contrato', valores: { tipo, lugar: o.lugar || S.ajustes.lugarFirma || '', fecha: ct.firma || (ct.inicio > HOY ? HOY : ct.inicio), anios: o.anios || (tipo === 'vivienda' ? 1 : 1),
+      formulario({ titulo: 'Contrato para firmar', boton: 'Siguiente: revisar el texto', valores: { tipo, lugar: o.lugar || S.ajustes.lugarFirma || '', fecha: ct.firma || (ct.inicio > HOY ? HOY : ct.inicio), anios: o.anios || (tipo === 'vivienda' ? 1 : 1),
         amueblado: !!o.amueblado, mascotas: !!o.mascotas, garantia: o.garantia || null, actividad: ct.actividad || o.actividad || '', vehiculo: ct.vehiculo || o.vehiculo || '', suministrosIncluidos: !!o.suministrosIncluidos, preaviso: o.preaviso || 30, adicionales: o.adicionales || '', formato: o.formato || 'pdf' },
         defs: [{ html: '<p class="nota">Modelo orientativo basado en la Ley de Arrendamientos Urbanos y el Código Civil. Revísalo y adáptalo antes de firmar; ante cualquier duda, consulta a un profesional.</p>' },
           { k: 'tipo', e: 'Tipo de contrato', t: 'select', op: Object.entries(Documentos.TIPOS) }, { html: '<div class="dos">' }, { k: 'lugar', e: 'Lugar de la firma' }, { k: 'fecha', e: 'Fecha de la firma', t: 'date' }, { html: '</div>' },
@@ -1025,13 +1082,18 @@
           { k: 'amueblado', t: 'check', e: 'Se alquila amueblado (añade un inventario)' }, { k: 'mascotas', t: 'check', e: 'Se permiten animales de compañía' },
           { k: 'garantia', e: 'Garantía adicional además de la fianza (opcional)', t: 'dinero' }, { k: 'actividad', e: 'Actividad (solo locales)' }, { k: 'vehiculo', e: 'Vehículo: marca, modelo y matrícula (solo garajes)' },
           { k: 'suministrosIncluidos', t: 'check', e: 'Suministros incluidos en la renta (solo habitaciones)' }, { k: 'preaviso', e: 'Días de preaviso para dejarlo (habitaciones, garajes, trasteros, locales)', t: 'num' },
-          { k: 'adicionales', e: 'Otros pactos (uno por línea)', t: 'area' }, { k: 'formato', e: 'Formato', t: 'select', op: [['pdf', 'PDF'], ['docx', 'Word (.docx), para editarlo']] }],
-        alGuardar: (d) => { const { formato } = d; ct.docOpciones = { ...d }; if (d.actividad) ct.actividad = d.actividad; if (d.vehiculo) ct.vehiculo = d.vehiculo; if (d.lugar) S.ajustes.lugarFirma = d.lugar;
-          const doc = Documentos.contrato(datosContrato(ct, p, q, d)), nombre = `contrato-${(q.nombre || 'inquilino').toLowerCase().replace(/\s+/g, '-')}`;
-          (formato === 'docx' ? Archivos.compartirBytes(nombre + '.docx', Documentos.docx(doc, Exportar.zip), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-            : Archivos.compartirBytes(nombre + '.pdf', Documentos.pdfContrato(doc, { acento: leerAp().acento }), 'application/pdf')).catch(() => toast('No se ha podido crear el contrato'));
-          if (!S.ajustes.dni || !q.dni) toast(!S.ajustes.dni ? 'Pon tu DNI en Ajustes › Mis datos para que salga en el contrato' : 'Falta el DNI del inquilino: añádelo en su ficha'); },
-        despues: () => fichaContrato(i) }); },
+          { k: 'adicionales', e: 'Otros pactos (uno por línea)', t: 'area' }],
+        alGuardar: (d) => { ct.docOpciones = { ...(ct.docOpciones || {}), ...d }; if (d.actividad) ct.actividad = d.actividad; if (d.vehiculo) ct.vehiculo = d.vehiculo; if (d.lugar) S.ajustes.lugarFirma = d.lugar; return ct.docOpciones; },
+        despues: (d) => editorContrato(i, d) }); },
+    modelosContrato() {
+      const m = S.ajustes.modelos || {}, tipos = Object.keys(Documentos.TIPOS).filter((k) => m[k]);
+      const cuenta = (x) => { const c = Object.values(x.cambios || {}), b = c.filter((y) => y == null).length; return [c.length - b ? Idioma.t(`${c.length - b} cambiadas`) : '', b ? Idioma.t(`${b} quitadas`) : '', (x.nuevas || []).length ? Idioma.t(`${x.nuevas.length} añadidas`) : ''].filter(Boolean).join(' · '); };
+      hoja('Modelos de contrato', `<p class="sub">${h(Idioma.t('Los contratos salen de un modelo para cada tipo (vivienda, habitación, local, garaje y trastero). Para cambiarlo, crea un contrato, edita el texto y marca «Usar estos cambios en los próximos contratos».'))}</p>
+        ${tipos.length ? `<div class="lista">${tipos.map((k) => `<div class="fila-modelo"><div><b>${h(Idioma.t(Documentos.TIPOS[k]))}</b><small>${h(cuenta(m[k]))}</small></div><button class="btn peq rojo" data-x="${k}">${h(Idioma.t('Volver al original'))}</button></div>`).join('')}</div>`
+          : `<p class="nota">${h(Idioma.t('Todavía usas los modelos originales de la app.'))}</p>`}`, (el) => {
+        el.querySelectorAll('[data-x]').forEach((b) => { b.onclick = () => confirma('Volver al modelo original', Idioma.t(`Se olvidan tus cambios en el modelo de ${Idioma.t(Documentos.TIPOS[b.dataset.x])}. Los contratos ya creados no cambian.`), 'Volver al original', () => { delete S.ajustes.modelos[b.dataset.x]; guardar(); A.modelosContrato(); toast('Modelo original recuperado'); }); });
+      });
+    },
     facturaPdf(i) { try { const r = MA.datosFactura(S, i, HOY); guardar(); const c = MA.cargos(S, HOY, (x) => x.id === i)[0], q = por(S.inquilinos, c.inquilinoId), l = langDe(q);
       r.mes = Idioma.mes(r.mes, l);
       Archivos.compartirBytes(`${Idioma.tr(l)('factura')}-${r.numero}.pdf`, PDF.factura(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))

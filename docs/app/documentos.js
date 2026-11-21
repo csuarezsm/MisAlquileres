@@ -77,7 +77,7 @@
     const imp = d.impuesto && d.impuesto.nombre ? ` más el ${d.impuesto.nombre} correspondiente (actualmente el ${String(d.impuesto.pct).replace('.', ',')} %)` : '';
     c('Renta y forma de pago', [
       `La renta mensual es de ${eur(d.renta)}${d.rentaLetras ? ` (${d.rentaLetras})` : ''}${imp}. Se pagará por meses anticipados ${d.diaPago && d.diaPago <= 7 ? `el día ${d.diaPago} de cada mes y, en todo caso, dentro de los siete primeros días` : `dentro de los ${d.diaPago && d.diaPago > 7 ? d.diaPago : 'siete'} primeros días`} de cada mes, mediante ${v(d.formaPago, 'transferencia bancaria a la cuenta que indique ' + ARR)}.`,
-      d.retencion ? `${INQ}, como obligado a retener, practicará sobre la renta la retención a cuenta del IRPF que establezca la normativa (actualmente el 19 %), la ingresará en la Agencia Tributaria y entregará a ${ARR} el certificado anual de retenciones.` : '',
+      d.retencion ? `${INQ}, como obligado a retener, practicará sobre la renta la retención a cuenta del IRPF que establezca la normativa (actualmente el ${String(d.retPct || 19).replace('.', ',')} %), la ingresará en la Agencia Tributaria y entregará a ${ARR} el certificado anual de retenciones.` : '',
       d.impuesto && d.impuesto.nombre ? `${ARR} emitirá cada mes la factura correspondiente.` : `${ARR} entregará a ${INQ} recibo o justificante de cada pago.`,
       d.inicioProrrateado ? `La renta del primer mes se calculará en proporción a los días de ocupación.` : '']);
 
@@ -140,6 +140,75 @@
     const contrae = (x) => String(x).replace(/\b([Aa]) EL (ARRENDA)/g, '$1l $2').replace(/\b([Dd])e EL (ARRENDA)/g, '$1el $2');
     for (const b of B) if (b.x) b.x = contrae(b.x);
     return { titulo, bloques: B };
+  }
+
+
+  // ---------- Texto editable: el contrato en secciones, y los modelos propios por tipo ----------
+  // secciones(doc) → { titulo, cabecera, clausulas:[{titulo, texto}], cierre:[bloques] }. El texto usa una línea en blanco entre párrafos.
+  const CABECERAS = ['REUNIDOS', 'EXPONEN', 'CLÁUSULAS'];
+  function secciones(doc) {
+    const B = doc.bloques, iF = B.findIndex((b) => b.t === 'firmas'), iCierre = iF > 0 && B[iF - 1].t === 'p' ? iF - 1 : iF;
+    const cab = [], cls = []; let titulo = doc.titulo;
+    for (let i = 0; i < iCierre; i++) {
+      const b = B[i];
+      if (b.t === 'titulo') titulo = b.x;
+      else if (b.t === 'c') cls.push({ titulo: b.x, parr: [] });
+      else if (cls.length && b.t === 'p') cls[cls.length - 1].parr.push(b.x);
+      else if (b.t === 'h' && b.x === 'CLÁUSULAS') continue;
+      else if (b.t === 'h' || b.t === 'p') cab.push(b.x);
+    }
+    return { titulo, cabecera: cab.join('\n\n'), clausulas: cls.map((c) => ({ titulo: c.titulo, texto: c.parr.join('\n\n') })), cierre: B.slice(iCierre) };
+  }
+  const parrafos = (t) => String(t || '').split(/\n\s*\n|\n/).map((x) => x.trim()).filter(Boolean);
+  function desdeSecciones(sec) {
+    const B = [{ t: 'titulo', x: sec.titulo }];
+    for (const x of parrafos(sec.cabecera)) B.push(CABECERAS.includes(x.toUpperCase()) ? { t: 'h', x: x.toUpperCase() } : { t: 'p', x });
+    B.push({ t: 'h', x: 'CLÁUSULAS' });
+    let n = 0;
+    for (const c of sec.clausulas) { const ps = parrafos(c.texto); if (!ps.length && !String(c.titulo || '').trim()) continue; n++; B.push({ t: 'c', n, x: String(c.titulo || '').trim() || `Cláusula ${n}` }); for (const x of ps) B.push({ t: 'p', x }); }
+    return { titulo: sec.titulo, bloques: B.concat(sec.cierre || []) };
+  }
+  // Datos del contrato que se pueden escribir como {MARCA} en un modelo propio
+  function marcas(d) {
+    const a = (d.arrendadores || [])[0] || {};
+    return { ARRENDADOR: a.nombre, INQUILINO: d.arrendatario && d.arrendatario.nombre, DIRECCION: d.inmueble && d.inmueble.direccion, RENTA: d.renta ? eur(d.renta) : '', RENTA_LETRA: d.rentaLetras,
+      FIANZA: d.fianza ? eur(d.fianza) : '', FIANZA_LETRA: d.fianzaLetras, GARANTIA: d.garantia ? eur(d.garantia) : '', INICIO: d.inicio ? fechaLarga(d.inicio) : '', FIN: d.fin ? fechaLarga(d.fin) : '',
+      DIA_PAGO: d.diaPago ? `día ${d.diaPago}` : '', FORMA_PAGO: d.formaPago, ACTIVIDAD: d.actividad, VEHICULO: d.vehiculo, LUGAR: d.lugar };
+  }
+  const MARCAS = ['ARRENDADOR', 'INQUILINO', 'DIRECCION', 'RENTA', 'RENTA_LETRA', 'FIANZA', 'FIANZA_LETRA', 'GARANTIA', 'INICIO', 'FIN', 'DIA_PAGO', 'FORMA_PAGO', 'ACTIVIDAD', 'VEHICULO', 'LUGAR'];
+  const rellenar = (t, m) => String(t).replace(/\{([A-Z_]+)\}/g, (x, k) => (k in m ? (m[k] ? String(m[k]) : '______________') : x));
+  function aMarcas(t, m) { // cambia los datos concretos de este contrato por {MARCA}, de los más largos a los más cortos
+    let r = String(t);
+    for (const [k, val] of Object.entries(m).filter(([, x]) => x && String(x).length >= 4).sort((a, b) => String(b[1]).length - String(a[1]).length)) r = r.split(String(val)).join(`{${k}}`);
+    return r;
+  }
+  // modelo = { cambios: { [título]: texto | null }, nuevas: [{ titulo, texto }] }
+  const SIN_MODELO = ['Otros pactos'];
+  function aplicarModelo(sec, modelo, d) {
+    if (!modelo) return sec;
+    const m = marcas(d), cambios = modelo.cambios || {}, cls = [];
+    for (const c of sec.clausulas) {
+      if (!(c.titulo in cambios)) { cls.push(c); continue; }
+      if (cambios[c.titulo] != null) cls.push({ titulo: c.titulo, texto: rellenar(cambios[c.titulo], m) });
+    }
+    const iOtros = cls.findIndex((c) => SIN_MODELO.includes(c.titulo)), nuevas = (modelo.nuevas || []).map((c) => ({ titulo: c.titulo, texto: rellenar(c.texto, m) }));
+    if (iOtros >= 0) cls.splice(iOtros, 0, ...nuevas); else cls.push(...nuevas);
+    return { ...sec, clausulas: cls };
+  }
+  // Compara lo editado con el modelo de la app y devuelve el modelo propio (con {MARCAS} en lugar de los datos de este contrato)
+  function crearModelo(base, editado, d) {
+    const m = marcas(d), norm = (t) => parrafos(t).join('\n\n'), cambios = {}, nuevas = [];
+    const ed = editado.clausulas.filter((c) => !SIN_MODELO.includes(c.titulo) && (String(c.titulo || '').trim() || parrafos(c.texto).length));
+    const porTitulo = new Map(ed.map((c) => [String(c.titulo).trim(), c]));
+    for (const c of base.clausulas) {
+      if (SIN_MODELO.includes(c.titulo)) continue;
+      const e = porTitulo.get(c.titulo);
+      if (!e || !parrafos(e.texto).length) cambios[c.titulo] = null;
+      else if (norm(e.texto) !== norm(c.texto)) cambios[c.titulo] = aMarcas(norm(e.texto), m);
+    }
+    const titulosBase = new Set(base.clausulas.map((c) => c.titulo));
+    for (const c of ed) if (!titulosBase.has(String(c.titulo).trim())) nuevas.push({ titulo: String(c.titulo).trim() || 'Cláusula', texto: aMarcas(norm(c.texto), m) });
+    return Object.keys(cambios).length || nuevas.length ? { cambios, nuevas } : null;
   }
 
   // ---------- PDF del contrato (A4) ----------
@@ -245,5 +314,5 @@
     return ['General'];
   }
 
-  return { TIPOS, ESTADOS, tipoDe, contrato, pdfContrato, docx, pdfActa, estanciasDe, fechaLarga };
+  return { TIPOS, ESTADOS, MARCAS, tipoDe, contrato, secciones, desdeSecciones, aplicarModelo, crearModelo, pdfContrato, docx, pdfActa, estanciasDe, fechaLarga };
 });

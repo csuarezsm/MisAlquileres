@@ -263,10 +263,31 @@ try {
     const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click(); await q.locator('[data-a=finEjemplo]').waitFor();
     await q.evaluate(() => { const s = window.__ma.S; s.ajustes.dni = '42000000T'; s.inquilinos[0].dni = '78000000X'; });
     await q.goto(URL0 + '#contratos'); await q.locator('[data-a=contrato]').first().click(); await q.locator('#hoja [data-a=docContrato]').click();
-    await campo(q, 'lugar').fill('Arrecife'); let [d] = await Promise.all([q.waitForEvent('download'), guardar(q)]);
+    await campo(q, 'lugar').fill('Arrecife'); await guardar(q); await q.locator('#hoja .clausula').first().waitFor();
+    let [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-e=crear]').click()]);
     let b = fs.readFileSync(await d.path(), 'latin1'); assert.ok(b.startsWith('%PDF') && /CONTRATO DE ARRENDAMIENTO DE VIVIENDA/.test(b) && /Arrecife/.test(b) && /78000000X/.test(b));
-    await q.locator('#hoja [data-a=docContrato]').click(); await campo(q, 'formato').selectOption('docx'); [d] = await Promise.all([q.waitForEvent('download'), guardar(q)]);
-    b = fs.readFileSync(await d.path()); assert.equal(b.slice(0, 2).toString(), 'PK'); assert.match(b.toString('utf8'), /word\/document\.xml/); assert.match(b.toString('utf8'), /Ley 29\/1994/);
+    // Editar el texto: cambiar una cláusula, quitar otra, añadir una y guardarlo como modelo de vivienda
+    await q.locator('#hoja [data-a=docContrato]').click(); await guardar(q); await q.locator('#hoja .clausula').first().waitFor();
+    const n0 = await q.locator('#hoja .clausula').count();
+    const acc = q.locator('#hoja .clausula').filter({ has: q.locator('[data-t][value="Acceso al inmueble"]') });
+    await acc.locator('textarea').fill('Visitas solo con cita previa por WhatsApp.');
+    await q.locator('#hoja .clausula').filter({ has: q.locator('[data-t][value="Notificaciones"]') }).locator('[data-e=quitar]').click();
+    await q.locator('#hoja [data-e=nueva]').click(); const nueva = q.locator('#hoja .clausula').last();
+    await nueva.locator('[data-t]').fill('Piscina'); await nueva.locator('textarea').fill('La piscina comunitaria se usa según las normas de la comunidad.');
+    assert.equal(await q.locator('#hoja .clausula').count(), n0, 'una quitada y una añadida');
+    await q.locator('#hoja [data-modelo]').check(); await q.locator('#hoja [data-formato]').selectOption('docx');
+    [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-e=crear]').click()]);
+    b = fs.readFileSync(await d.path()); assert.equal(b.slice(0, 2).toString(), 'PK'); assert.match(b.toString('utf8'), /word\/document\.xml/);
+    const m = await q.evaluate(() => window.__ma.S.ajustes.modelos.vivienda);
+    assert.equal(m.cambios['Acceso al inmueble'], 'Visitas solo con cita previa por WhatsApp.'); assert.equal(m.cambios.Notificaciones, null); assert.equal(m.nuevas[0].titulo, 'Piscina');
+    // Otro contrato de vivienda ya sale con el modelo propio; y se puede volver al original
+    const tx = await q.evaluate(() => { const S = window.__ma.S, D = window.Documentos; const d = { tipo: 'vivienda', arrendadores: [{ nombre: 'X' }], arrendatario: { nombre: 'Y' }, inmueble: {}, inicio: '2027-01-01', anios: 1, renta: 50000, fianza: 0, gastos: [] };
+      return D.aplicarModelo(D.secciones(D.contrato(d)), S.ajustes.modelos.vivienda, d).clausulas.map((c) => c.titulo).join('|'); });
+    assert.ok(/Piscina/.test(tx) && !/Notificaciones/.test(tx));
+    await q.goto(URL0 + '#ajustes'); await q.locator('[data-a=modelosContrato]').click(); await q.locator('#hoja .fila-modelo').waitFor();
+    await q.locator('#hoja .fila-modelo [data-x=vivienda]').click(); await q.locator('#hoja [data-x=si]').click(); await q.locator('#toast').getByText('Modelo original recuperado').waitFor();
+    assert.equal(await q.evaluate(() => window.__ma.S.ajustes.modelos.vivienda), undefined);
+    await q.goto(URL0 + '#contratos'); await q.locator('[data-a=contrato]').first().click();
     await q.locator('#hoja [data-a=actaNueva][data-t=entrada]').click(); await q.locator('#facta').waitFor();
     await q.locator('#facta [name=eo0]').fill('Paredes recién pintadas'); await q.locator('#facta [data-estado="1:regular"]').click();
     const jpg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKp//2Q==', 'base64');
