@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.8.2';
+  const APP_VERSION = '1.8.3';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -67,6 +67,7 @@
     const b = leerBloq(); if (!b.activo || pidiendo) return;
     if (document.hidden) salida = Date.now(); else if (!bloqueada && salida && Date.now() - salida >= b.minutos * 60000) bloquear();
   });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) actualizarWidget(); });
   Bloqueo.proteger(leerBloq().ocultar); bloquear();
 
   // ---------- Copias de seguridad programadas ----------
@@ -137,26 +138,27 @@
       retencion: !!ct.retencion, retPct: MA.tipoEn(S, 'ret', HOY.slice(0, 7)), amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
   }
   // Widget: lo que te deben y lo cobrado este mes. Con el bloqueo activado enseña recuentos sin importes (salvo que se pida verlos).
+  function textosWidget() {
+    const tit = Idioma.t('Mis alquileres') + (S.ejemplo ? ' · ' + Idioma.t('ejemplo') : '');
+    if (!S.contratos.length) return { titulo: tit, linea1: Idioma.t('Abre la app'), linea2: Idioma.t('Empieza en un minuto') };
+    const b = leerBloq(), cifras = !b.activo || b.widgetImportes, m = MA.panel(S, HOY), dd = deudas(), d = dd.reduce((t, x) => t + x.total, 0);
+    const mes = MA.cargos(S, HOY, (x) => !x.anulado && x.periodo === m.mes), cobr = mes.filter((x) => x.estado === 'pagado').length;
+    const prox = MA.cargos(S, HOY, (x) => !x.anulado).filter((x) => x.estado !== 'pagado' && x.vence >= HOY).sort((x, y) => (x.vence < y.vence ? -1 : 1))[0];
+    let l1, l2;
+    if (cifras) {
+      l1 = d ? Idioma.t(`Te deben ${eur(d)}`) : Idioma.t('Todo cobrado');
+      l2 = Idioma.t(`Cobrado en ${fmes(m.mes)}: ${eur(m.mesActual.cobrado)} de ${eur(m.mesActual.esperado)}`);
+    } else {
+      l1 = !dd.length ? Idioma.t('Todo cobrado') : dd.length === 1 ? Idioma.t('1 inquilino te debe') : Idioma.t(`${dd.length} inquilinos te deben`);
+      l2 = Idioma.t(`Cobrados ${cobr} de ${mes.length} recibos de ${fmes(m.mes)}`);
+    }
+    if (prox) l2 += ' · ' + Idioma.t(`próximo cobro ${prox.vence === HOY ? Idioma.t('hoy') : Idioma.t(`el día ${+prox.vence.slice(8, 10)}`)}`);
+    return { titulo: tit, linea1: l1, linea2: l2 };
+  }
+  // Widget: con el bloqueo activado enseña recuentos sin importes (salvo que se pida verlos). Se refresca al abrir, al volver y al guardar.
   function actualizarWidget() {
     if (!Widget.disponible) return;
-    try {
-      if (S.ejemplo) return;
-      if (!S.contratos.length) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Abre la app'), linea2: Idioma.t('Empieza en un minuto') });
-      const b = leerBloq(), cifras = !b.activo || b.widgetImportes, m = MA.panel(S, HOY), dd = deudas(), d = dd.reduce((t, x) => t + x.total, 0);
-      const mes = MA.cargos(S, HOY, (x) => !x.anulado && x.periodo === m.mes), cobr = mes.filter((x) => x.estado === 'pagado').length;
-      const prox = MA.cargos(S, HOY, (x) => !x.anulado).filter((x) => x.estado !== 'pagado' && x.vence >= HOY).sort((a, c) => (a.vence < c.vence ? -1 : 1))[0];
-      const dia = prox ? (prox.vence === HOY ? Idioma.t('hoy') : Idioma.t(`el día ${+prox.vence.slice(8, 10)}`)) : '';
-      let l1, l2;
-      if (cifras) {
-        l1 = d ? Idioma.t(`Te deben ${eur(d)}`) : Idioma.t('Todo cobrado');
-        l2 = Idioma.t(`Cobrado en ${fmes(m.mes)}: ${eur(m.mesActual.cobrado)} de ${eur(m.mesActual.esperado)}`);
-      } else {
-        l1 = !dd.length ? Idioma.t('Todo cobrado') : dd.length === 1 ? Idioma.t('1 inquilino te debe') : Idioma.t(`${dd.length} inquilinos te deben`);
-        l2 = Idioma.t(`Cobrados ${cobr} de ${mes.length} recibos de ${fmes(m.mes)}`);
-      }
-      if (prox) l2 += ' · ' + Idioma.t(`próximo cobro ${dia}`);
-      Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: l1, linea2: l2 });
-    } catch (e) { /* el widget es opcional */ }
+    try { Widget.actualizar(textosWidget()); } catch (e) { console.error(e); }
   }
   const esIOSNavegador = () => { try { return !NATIVO && /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone && !matchMedia('(display-mode: standalone)').matches && localStorage.getItem('ma.ios') !== '1'; } catch (e) { return false; } };
   function alDia() { HOY = hoyLocal(); if (MA.generarCargos(S, HOY) + MA.generarGastos(S, HOY)) guardar(); }
@@ -1215,17 +1217,17 @@
     try { fn(el.dataset.id ? Number(el.dataset.id) : undefined, el); } catch (x) { fallo(x); }
   });
   window.addEventListener('hashchange', () => { cerrar(); $('#vista').scrollTop = 0; pinta(); });
-  window.Plataforma.alVolver(() => { const antes = HOY; alDia(); if (HOY !== antes) pinta(); copiaProgramada(); });
+  window.Plataforma.alVolver(() => { const antes = HOY; alDia(); if (HOY !== antes) pinta(); copiaProgramada(); actualizarWidget(); });
 
   // ---------- Arranque ----------
   (async function arrancar() {
     let lg = null; try { lg = localStorage.getItem('ma.idioma'); } catch (e) { /* */ }
     try { const txt = await Almacen.cargar(); if (txt) S = MA.importar(txt); } catch (e) { console.error(e); toast('No se han podido leer los datos guardados'); }
     Idioma.poner(lg || S.ajustes.idioma || Idioma.delSistema()); S.ajustes.idioma = Idioma.actual;
-    await comprobarCompra(); alDia(); pinta(); guardar();
+    await comprobarCompra(); alDia(); pinta(); guardar(); actualizarWidget();
     Avisos.preparar(alPulsarAviso);
     if (!NATIVO && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     if (!NATIVO && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-    window.__ma = { get S() { return S; }, pinta }; // para las pruebas automáticas
+    window.__ma = { get S() { return S; }, pinta, textosWidget }; // para las pruebas automáticas
   })();
 })();

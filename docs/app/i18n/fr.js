@@ -700,6 +700,7 @@ Idioma.registrar('fr', {
  "Meses": "Mois",
  "Mis alquileres": "Mes locations",
  "Mis alquileres {x}": "Mes locations {x}",
+ "Mis alquileres · ejemplo": "Mes locations · exemple",
  "Mis datos": "Mes données",
  "Modelo 303": "Modèle 303",
  "Modelo 420": "Modèle 420",

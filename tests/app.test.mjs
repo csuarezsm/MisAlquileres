@@ -262,6 +262,12 @@ try {
   await paso('contrato para firmar en PDF y Word, y acta de entrada con foto y firma', async () => {
     const q = await pagina(); await q.goto(URL0 + '#inicio'); await q.locator('[data-a=ejemplo]').click(); await q.locator('[data-a=finEjemplo]').waitFor();
     await q.evaluate(() => { const s = window.__ma.S; s.ajustes.dni = '42000000T'; s.inquilinos[0].dni = '78000000X'; });
+    // Widget: sin bloqueo con euros; con bloqueo, recuentos sin cifras (o con cifras si se pide)
+    let w = await q.evaluate(() => window.__ma.textosWidget()); assert.match(w.linea1, /€|Todo cobrado/); assert.match(w.titulo, /ejemplo/);
+    await q.evaluate(() => localStorage.setItem('ma.bloqueo', JSON.stringify({ activo: true }))); w = await q.evaluate(() => window.__ma.textosWidget());
+    assert.ok(!/€/.test(w.linea1 + w.linea2) && /te debe|Todo cobrado/.test(w.linea1) && /Cobrados \d+ de \d+ recibos/.test(w.linea2), JSON.stringify(w));
+    await q.evaluate(() => localStorage.setItem('ma.bloqueo', JSON.stringify({ activo: true, widgetImportes: true }))); w = await q.evaluate(() => window.__ma.textosWidget()); assert.match(w.linea2, /€/);
+    await q.evaluate(() => localStorage.removeItem('ma.bloqueo'));
     await q.goto(URL0 + '#contratos'); await q.locator('[data-a=contrato]').first().click(); await q.locator('#hoja [data-a=docContrato]').click();
     await campo(q, 'lugar').fill('Arrecife'); await guardar(q); await q.locator('#hoja .clausula').first().waitFor();
     let [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-e=crear]').click()]);

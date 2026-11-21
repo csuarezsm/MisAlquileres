@@ -700,6 +700,7 @@ Idioma.registrar('it', {
  "Meses": "Mesi",
  "Mis alquileres": "I miei affitti",
  "Mis alquileres {x}": "I miei affitti {x}",
+ "Mis alquileres · ejemplo": "I miei affitti · esempio",
  "Mis datos": "I miei dati",
  "Modelo 303": "Modello 303",
  "Modelo 420": "Modello 420",
