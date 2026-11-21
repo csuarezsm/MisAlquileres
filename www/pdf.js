@@ -22,6 +22,9 @@
   }
   function literal(txt) {
     let o = '(';
+    // Caracteres que la fuente no tiene: se cambian por su equivalente más cercano
+    const SUST = { '−': '-', '‐': '-', '‑': '-', '✓': 'v', '✕': 'x', '×': 'x', '≈': '~', '≤': '<=', '≥': '>=', '→': '->', '←': '<-', '\u00a0': ' ', '\u202f': ' ', '\u2009': ' ' };
+    txt = String(txt).replace(/[−‐‑✓✕×≈≤≥→←\u00a0\u202f\u2009]/g, (x) => SUST[x]);
     for (const ch of String(txt)) {
       let c = ch === '€' ? 0x80 : ch === '–' ? 0x96 : ch === '—' ? 0x97 : ch === '…' ? 0x85 : ch === '•' ? 0x95 : ch === '‘' ? 0x91 : ch === '’' ? 0x92 : ch === '“' ? 0x93 : ch === '”' ? 0x94 : ch.charCodeAt(0);
       if (c > 255) c = 63;
@@ -84,22 +87,40 @@
       },
       salto(h) { if (!doc.ajustar && doc.y + h > doc.alto - doc.margen) doc.pagina(); return doc; },
       // Tabla con cabecera repetida en cada página. columnas: [{t, tipo, ancho?}]
+      // Tabla: anchos medidos sobre el texto real; las cabeceras largas pasan a dos líneas; la cabecera se repite en cada página
       tabla(cols, filas, o = {}) {
         const size = o.size || 8.5, padH = 4, altoF = size * 1.9, x0 = doc.margen, total = doc.ancho - 2 * doc.margen;
-        const pesos = cols.map((c, i) => c.ancho || Math.min(4, Math.max(c.tipo === 'euros' ? 1.25 : c.tipo === 'fecha' ? 1.15 : c.tipo === 'num' ? 0.8 : 1,
-          ...filas.slice(0, 60).map((f) => String(o.fmt ? o.fmt(f[i], c) : f[i] || '').length / 11), c.t.length / 14)));
-        const sumP = pesos.reduce((a, b) => a + b, 0), anchos = pesos.map((p) => (p / sumP) * total);
         const der = (c) => c.tipo === 'euros' || c.tipo === 'num';
+        const val = (f, c, i) => { const v = o.fmt ? o.fmt(f[i], c) : f[i]; return v == null ? '' : String(v); };
+        const muestra = filas.length > 300 ? filas.filter((_, k) => k % Math.ceil(filas.length / 300) === 0) : filas;
+        // Ancho natural: el dato más largo, y para la cabecera la palabra más larga (puede partirse en dos líneas)
+        const nat = cols.map((c, i) => {
+          const datos = Math.max(0, ...muestra.map((f) => ancho(val(f, c, i), size)), o.totales ? ancho(val(o.totales, c, i), size, true) : 0);
+          const palabra = Math.max(...c.t.split(/\s+/).map((w) => ancho(w, size - 0.5, true))), cab = ancho(c.t, size - 0.5, true);
+          return { min: Math.max(palabra, der(c) ? datos : Math.min(datos, 60)) + 2 * padH, ideal: Math.max(Math.min(cab, Math.max(datos, palabra * 1.6)), datos, palabra) + 2 * padH, texto: !der(c) && c.tipo !== 'fecha' };
+        });
+        let anchos = nat.map((x) => x.ideal); const suma = anchos.reduce((a, b) => a + b, 0);
+        if (suma <= total) { const extra = (total - suma) / cols.length; anchos = anchos.map((w) => w + extra); }
+        else {
+          // Se encogen primero las columnas de texto (se recortan con «…»), nunca por debajo de su mínimo
+          const fijo = nat.reduce((a, x, k) => a + (x.texto ? 0 : anchos[k]), 0), libre = Math.max(total - fijo, 0), texto = nat.reduce((a, x, k) => a + (x.texto ? anchos[k] : 0), 0);
+          anchos = anchos.map((w, k) => (nat[k].texto ? Math.max(nat[k].min * 0.6, (w * libre) / (texto || 1)) : w));
+          const s2 = anchos.reduce((a, b) => a + b, 0); if (s2 > total) anchos = anchos.map((w) => (w * total) / s2);
+        }
+        // Cabecera en una o dos líneas
+        const partir = (txt, w) => { if (ancho(txt, size - 0.5, true) <= w) return [txt]; const pal = txt.split(/\s+/); let a = ''; const l = [];
+          for (const p2 of pal) { const prueba = a ? a + ' ' + p2 : p2; if (ancho(prueba, size - 0.5, true) <= w || !a) a = prueba; else { l.push(a); a = p2; } } l.push(a); return l.length > 2 ? [l[0], l.slice(1).join(' ')] : l; };
+        const lineasCab = cols.map((c, i) => partir(c.t, anchos[i] - 2 * padH)), dosL = lineasCab.some((l) => l.length > 1), altoC = dosL ? size * 3 : altoF;
         const cab = () => {
-          doc.rect(x0, doc.y, total, altoF, o.colorCab || [0.94, 0.95, 0.95]); let x = x0;
-          cols.forEach((c, i) => { doc.texto(der(c) ? x + anchos[i] - padH : x + padH, doc.y + altoF * 0.3, c.t, { size: size - 0.5, negrita: true, alinear: der(c) ? 'derecha' : null, max: anchos[i] - 2 * padH }); x += anchos[i]; });
-          doc.y += altoF;
+          doc.rect(x0, doc.y, total, altoC, o.colorCab || [0.94, 0.95, 0.95]); let x = x0;
+          cols.forEach((c, i) => { lineasCab[i].forEach((l, k) => doc.texto(der(c) ? x + anchos[i] - padH : x + padH, doc.y + (dosL ? size * 0.45 + k * size * 1.15 : altoF * 0.3), l, { size: size - 0.5, negrita: true, alinear: der(c) ? 'derecha' : null, max: anchos[i] - 2 * padH })); x += anchos[i]; });
+          doc.y += altoC;
         };
         cab();
         const fila = (f, negrita) => {
-          if (doc.y + altoF > doc.alto - doc.margen) { doc.pagina(); cab(); }
+          if (doc.y + altoF > doc.alto - doc.margen - (doc.pieAlto || 0)) { doc.pagina(); cab(); }
           let x = x0;
-          cols.forEach((c, i) => { const v = o.fmt ? o.fmt(f[i], c) : f[i]; if (v != null && v !== '') doc.texto(der(c) ? x + anchos[i] - padH : x + padH, doc.y + altoF * 0.3, v, { size, negrita, alinear: der(c) ? 'derecha' : null, max: anchos[i] - 2 * padH }); x += anchos[i]; });
+          cols.forEach((c, i) => { const v = val(f, c, i); if (v !== '') doc.texto(der(c) ? x + anchos[i] - padH : x + padH, doc.y + altoF * 0.3, v, { size, negrita, alinear: der(c) ? 'derecha' : null, max: anchos[i] - 2 * padH }); x += anchos[i]; });
           doc.y += altoF; doc.linea(x0, doc.y, x0 + total, doc.y, { color: [0.9, 0.91, 0.91], grosor: 0.4 });
         };
         filas.forEach((f) => fila(f));
@@ -108,6 +129,7 @@
       },
       bytes() {
         if (doc.ajustar) pg.alto = Math.ceil(doc.y + doc.margen);
+        if (doc.alPie) { const ult = pg; paginas.forEach((p, k) => { pg = p; doc.alPie(k + 1, paginas.length); }); pg = ult; }
         const objs = [], add = (s) => { objs.push(s); return objs.length; };
         const cat = add(null), pags = add(null), f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'), f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
         for (const im of imagenes) im.obj = add(`<< /Type /XObject /Subtype /Image /Width ${im.ancho} /Height ${im.alto} /ColorSpace /${im.comps === 1 ? 'DeviceGray' : im.comps === 4 ? 'DeviceCMYK' : 'DeviceRGB'} /BitsPerComponent 8 /Filter /DCTDecode${im.comps === 4 ? ' /Decode [1 0 1 0 1 0 1 0]' : ''} /Length ${im.bytes.length} >>\nstream\n${binario(im.bytes)}\nendstream`);
@@ -148,8 +170,8 @@
     const col = (x, et, nombre, dni, extra) => { d.texto(x, d.y, t(et), { size: 7.5, color: GRIS }); d.texto(x, d.y + 11, nombre || '—', { size: 10, negrita: true, max: A / 2 - 10 });
       if (dni) d.texto(x, d.y + 25, `${t('DNI/NIF')} ${dni}`, { size: 8, color: GRIS }); if (extra) d.texto(x, d.y + (dni ? 37 : 25), extra, { size: 8, color: GRIS, max: A / 2 - 10 }); };
     col(M, 'Arrendador', r.propietario, r.propietarioDni, r.propietarioDomicilio);
-    col(M + A / 2 + 6, 'Inquilino', r.inquilino, r.inquilinoDni);
-    d.y += r.propietarioDomicilio ? 52 : 42;
+    col(M + A / 2 + 6, 'Inquilino', r.inquilino, r.inquilinoDni, r.inquilinoDomicilio);
+    d.y += r.propietarioDomicilio || r.inquilinoDomicilio ? 52 : 42;
     d.linea(M, d.y, D, d.y); d.y += 10;
     d.texto(M, d.y, t('Concepto'), { size: 7.5, color: GRIS }); d.y += 11;
     d.parrafo(`${t('Alquiler de')} ${r.inmueble}${r.direccion ? ', ' + r.direccion : ''}. ${t('Mes')}: ${r.mes}.`, { size: 9.5, ancho: A, interlinea: 1.35 });
@@ -218,7 +240,7 @@
 
   // Listado: A4 vertical, o apaisado si tiene muchas columnas
   function listado(tabla, o = {}) {
-    const t = o.t || id, apaisado = tabla.columnas.length > 6, acento = hex(o.acento);
+    const t = o.t || id, conDatos = tabla.columnas.filter((_, i) => tabla.filas.some((f) => f[i] != null && f[i] !== '')).length, apaisado = conDatos > 6, acento = hex(o.acento);
     const fmt = (v, c) => (v == null || v === '' ? '' : c.tipo === 'euros' ? eur(v) : c.tipo === 'fecha' ? f(v) : c.tipo === 'num' ? String(v).replace('.', ',') : String(v));
     const d = Documento({ ancho: apaisado ? 842 : 595, alto: apaisado ? 595 : 842, margen: 32 });
     d.rect(0, 0, d.ancho, 4, acento);
@@ -227,9 +249,15 @@
     d.y = 44;
     if (tabla.subtitulo) { d.texto(d.margen, d.y, tabla.subtitulo, { size: 9, color: GRIS }); d.y += 16; }
     d.y += 4;
+    d.pieAlto = 14;
+    d.alPie = (k, n2) => { d.texto(d.margen, d.alto - d.margen + 4, `${tabla.titulo} · ${tabla.filas.length} ${t('filas')}`, { size: 7, color: GRIS }); d.texto(d.ancho - d.margen, d.alto - d.margen + 4, `${k} / ${n2}`, { size: 7, color: GRIS, alinear: 'derecha' }); };
     if (!tabla.filas.length) d.texto(d.margen, d.y + 10, t('No hay datos con estos filtros.'), { size: 10, color: GRIS });
-    else d.tabla(tabla.columnas, tabla.filas, { fmt, totales: tabla.totales, size: apaisado ? 8 : 8.5 });
-    d.y += 10; d.texto(d.margen, Math.min(d.y, d.alto - d.margen), `${tabla.filas.length} ${t('filas')} · Mis alquileres`, { size: 7, color: GRIS });
+    else {
+      // En el PDF se quitan las columnas sin ningún dato (en Excel se mantienen)
+      const vacia = (i) => tabla.filas.every((f) => f[i] == null || f[i] === '') && (!tabla.totales || tabla.totales[i] == null || tabla.totales[i] === '' || tabla.totales[i] === 0);
+      const idx = tabla.columnas.map((_, i) => i).filter((i) => !vacia(i));
+      d.tabla(idx.map((i) => tabla.columnas[i]), tabla.filas.map((f) => idx.map((i) => f[i])), { fmt, totales: tabla.totales ? idx.map((i) => tabla.totales[i]) : null, size: apaisado ? 8 : 8.5 });
+    }
     return d.bytes();
   }
 
@@ -242,6 +270,7 @@
     d.y = 60;
     d.texto(M, d.y, e.inquilino.nombre, { size: 12, negrita: true }); d.y += 16;
     if (e.inquilino.dni) { d.texto(M, d.y, `${t('DNI/NIF')} ${e.inquilino.dni}`, { size: 9, color: GRIS }); d.y += 13; }
+    if (e.inquilino.domicilio) { d.texto(M, d.y, e.inquilino.domicilio, { size: 9, color: GRIS, max: D - M }); d.y += 13; }
     if (o.propietario) { d.texto(M, d.y, `${t('Arrendador')}: ${o.propietario}`, { size: 9, color: GRIS }); d.y += 13; }
     if (e.F.desde || e.F.hasta) { d.texto(M, d.y, `${t('Periodo')}: ${e.F.desde ? f(e.F.desde) : '…'} – ${e.F.hasta ? f(e.F.hasta) : f(e.hoy)}`, { size: 9, color: GRIS }); d.y += 13; }
     d.y += 8;

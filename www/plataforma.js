@@ -12,13 +12,13 @@
     });
   }
   const Almacen = {
-    async cargar() {
-      try { const d = await bd(); return await new Promise((ok, mal) => { const q = d.transaction('kv').objectStore('kv').get('estado'); q.onsuccess = () => ok(q.result || null); q.onerror = () => mal(q.error); }); }
-      catch (e) { return localStorage.getItem('ma.estado'); }
+    async cargar(clave = 'estado') {
+      try { const d = await bd(); return await new Promise((ok, mal) => { const q = d.transaction('kv').objectStore('kv').get(clave); q.onsuccess = () => ok(q.result || null); q.onerror = () => mal(q.error); }); }
+      catch (e) { return localStorage.getItem('ma.' + clave); }
     },
-    async guardar(txt) {
-      try { const d = await bd(); await new Promise((ok, mal) => { const t = d.transaction('kv', 'readwrite'); t.objectStore('kv').put(txt, 'estado'); t.oncomplete = ok; t.onerror = () => mal(t.error); }); }
-      catch (e) { localStorage.setItem('ma.estado', txt); }
+    async guardar(txt, clave = 'estado') {
+      try { const d = await bd(); await new Promise((ok, mal) => { const t = d.transaction('kv', 'readwrite'); if (txt == null) t.objectStore('kv').delete(clave); else t.objectStore('kv').put(txt, clave); t.oncomplete = ok; t.onerror = () => mal(t.error); }); }
+      catch (e) { if (txt == null) localStorage.removeItem('ma.' + clave); else localStorage.setItem('ma.' + clave, txt); }
     },
   };
 

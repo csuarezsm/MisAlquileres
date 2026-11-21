@@ -59,7 +59,7 @@
       anota(s, hoy, 'recibo_emitido', cargoId, { numero: c.recibo });
     }
     return { numero: c.recibo, fecha: ultimo.fecha, emitido: hoy, propietario: s.ajustes.propietario || '', propietarioDni: s.ajustes.dni || '', propietarioDomicilio: s.ajustes.domicilio || '',
-      inquilino: q.nombre || '', inquilinoDni: q.dni || '', telefono: q.telefono || '', inmueble: p.nombre || '', direccion: p.direccion || '', referencia: p.referencia || '',
+      inquilino: q.nombre || '', inquilinoDni: q.dni || '', inquilinoDomicilio: q.domicilio || '', telefono: q.telefono || '', inmueble: p.nombre || '', direccion: p.direccion || '', referencia: p.referencia || '',
       periodo: c.periodo, mes: fmes(c.periodo), importe: c.importe, pagado: Math.min(pagado, c.importe), pendiente: Math.max(0, c.importe - pagado), letras: eurosLetras(Math.min(pagado, c.importe)),
       pagos: pagos.map((x) => ({ fecha: x.fecha, importe: x.importe, metodo: x.metodo })), completo: pagado >= c.importe };
   }
@@ -80,7 +80,7 @@
     const pagos = s.pagos.filter((x) => x.cargoId === cargoId && !x.anulado).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id - b.id), pagado = pagos.reduce((t, x) => t + x.importe, 0);
     return { numero: c.factura.numero, fecha: c.factura.fecha, emitido: hoy, propietario: s.ajustes.propietario || '', propietarioDni: s.ajustes.dni || '', propietarioDomicilio: s.ajustes.domicilio || '',
       inquilino: q.nombre || '', inquilinoDni: q.dni || '', inquilinoDomicilio: q.domicilio || '', inmueble: p.nombre || '', direccion: p.direccion || '', referencia: p.referencia || '',
-      periodo: c.periodo, mes: fmes(c.periodo), base: c.base, impuesto: c.impuesto ? MA.IMPUESTOS[c.impuesto].nombre : '', pct: c.pct || 0, cuota: c.cuota || 0, retPct: c.ret ? MA.RETENCION : 0, ret: c.ret || 0,
+      periodo: c.periodo, mes: fmes(c.periodo), base: c.base, impuesto: c.impuesto ? MA.IMPUESTOS[c.impuesto].nombre : '', pct: c.pct || 0, cuota: c.cuota || 0, retPct: c.ret ? (c.retPct || MA.RETENCION) : 0, ret: c.ret || 0,
       total: c.importe, pagado: Math.min(pagado, c.importe), pendiente: Math.max(0, c.importe - pagado), formaPago: s.ajustes.formaPago || '',
       pagos: pagos.map((x) => ({ fecha: x.fecha, importe: x.importe, metodo: x.metodo })), completo: pagado >= c.importe,
       avisos: [!s.ajustes.dni && 'Falta tu DNI/NIF en Mis datos: la factura lo necesita.', !q.dni && 'Falta el NIF del inquilino: la factura lo necesita.'].filter(Boolean) };

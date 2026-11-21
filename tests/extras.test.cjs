@@ -244,12 +244,14 @@ test('facturas: IGIC y retención en el recibo, numeración, resumen trimestral 
   assert.equal(MA.resumenTrimestre(s, 2026, 3, H).sinNumero, 3);
   // Cambiar a IVA 21 % recalcula los recibos sin cobros, no los cobrados
   MA.editarContrato(s, ct.id, { impuesto: 'iva' }, H);
-  assert.equal(s.cargos.find((x) => x.periodo === '2026-11').importe, 100000 + 21000 - 19000); assert.equal(c.importe, 88000);
-  // Cambio de un recibo: se indica la base
-  MA.ajustarCargo(s, s.cargos.find((x) => x.periodo === '2026-11').id, 50000, H); assert.equal(s.cargos.find((x) => x.periodo === '2026-11').importe, 50000 + 10500 - 9500);
+  assert.equal(s.cargos.find((x) => x.periodo === '2026-09').importe, 100000 + 21000 - 19000); assert.equal(c.importe, 88000);
+  assert.equal(s.cargos.find((x) => x.periodo === '2026-11').importe, 88000, 'una factura emitida no cambia');
+  // Cambio de un recibo: se indica la base; con factura emitida no se puede
+  assert.throws(() => MA.ajustarCargo(s, s.cargos.find((x) => x.periodo === '2026-11').id, 50000, H), (e) => e.code === 'FACTURA');
+  MA.ajustarCargo(s, s.cargos.find((x) => x.periodo === '2026-09').id, 50000, H); assert.equal(s.cargos.find((x) => x.periodo === '2026-09').importe, 50000 + 10500 - 9500);
   // Renta: ingresos = bases, retenciones = las de cada recibo
   const r = MA.informeRenta(s, 2026, H).inmuebles[0];
-  assert.equal(r.ingresos.total, 100000 * 4 + 50000 + 100000 * 0 + 0 + (s.cargos.length - 5) * 0);
+  assert.equal(r.ingresos.total, 100000 * 4 + 50000);
   assert.equal(r.retenciones, 19000 * 4 + 9500);
   // Panel: lo cobrado cuenta como ingreso sin el impuesto
   const k = MA.panel(s, H).inmuebles.find((x) => x.id === p.id); assert.equal(k.ingresos, 100000);
@@ -272,4 +274,26 @@ test('documentos: modelos de contrato por tipo, Word válido y acta en PDF', () 
   const w = Buffer.from(Doc.docx(Doc.contrato({ ...d, tipo: 'vivienda' }), Ex.zip)); assert.equal(w.slice(0, 2).toString(), 'PK'); assert.match(w.toString('utf8'), /\[Content_Types\]\.xml/);
   const pdf = Buffer.from(Doc.pdfActa({ tipo: 'salida', fecha: '2026-12-01', inmueble: 'Piso', estancias: [{ nombre: 'Salón', estado: 'mal', notas: 'Mancha', fotos: [] }], contadores: { luz: '1' } })).toString('latin1');
   assert.ok(pdf.startsWith('%PDF') && /Acta de salida/.test(pdf) && /Con da/.test(pdf));
+});
+
+test('tipos de impuestos: cambiar el IGIC desde un mes sin tocar lo anterior ni lo facturado', () => {
+  const s = MA.nuevo(); s.pro = true; const H = '2026-11-20';
+  const p = MA.crearInmueble(s, { nombre: 'Local', tipo: 'Local comercial' }, H), q = MA.crearInquilino(s, { nombre: 'SL', dni: 'B1' });
+  MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2026-09-01', importe: 100000, impuesto: 'igic' }, H);
+  const sep = s.cargos.find((x) => x.periodo === '2026-09'), oct = s.cargos.find((x) => x.periodo === '2026-10'), nov = s.cargos.find((x) => x.periodo === '2026-11');
+  MA.registrarPago(s, { cargoId: sep.id, importe: sep.importe, fecha: '2026-09-02' }, H); MA.datosFactura(s, oct.id, H);
+  // Sube el IGIC al 7,5 % desde enero: nada de este año cambia; enero ya sale al 7,5 %
+  assert.equal(MA.cambiarTipo(s, 'igic', '7,5', '2027-01', H), 0);
+  assert.deepEqual([sep.pct, oct.pct, nov.pct], [7, 7, 7]);
+  MA.generarCargos(s, '2027-01-15'); const ene = s.cargos.find((x) => x.periodo === '2027-01'); assert.equal(ene.pct, 7.5); assert.equal(ene.importe, 107500);
+  // Un cambio desde octubre recalcula noviembre y diciembre (octubre tiene factura y septiembre está cobrado)
+  assert.equal(MA.cambiarTipo(s, 'igic', 3, '2026-10', H), 2);
+  assert.deepEqual([sep.pct, oct.pct, nov.pct], [7, 7, 3]); assert.equal(ene.pct, 7.5, 'enero sigue con su tipo posterior');
+  assert.equal(MA.tipoEn(s, 'igic', '2026-12'), 3); assert.equal(MA.tipoEn(s, 'igic', '2027-02'), 7.5); assert.equal(MA.tipoEn(s, 'iva', '2027-02'), 21);
+  // Quitar el cambio de octubre vuelve a dejar noviembre al 7 %
+  MA.quitarTipo(s, 'igic', '2026-10', H); assert.equal(nov.pct, 7);
+  // Retención con fecha de efecto
+  MA.editarContrato(s, s.contratos[0].id, { retencion: true }, H); MA.cambiarTipo(s, 'ret', 20, '2027-01', H);
+  assert.equal(nov.ret, 19000); assert.equal(ene.ret, 20000); assert.equal(MA.datosFactura(s, ene.id, '2027-01-15').retPct, 20);
+  assert.throws(() => MA.cambiarTipo(s, 'igic', 80, '2027-01', H), (e) => e.code === 'DATOS');
 });

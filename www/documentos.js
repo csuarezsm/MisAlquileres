@@ -135,7 +135,7 @@
     if (d.adicionales) c('Otros pactos', String(d.adicionales).split(/\n+/));
     p('Y en prueba de conformidad, las partes firman el presente contrato por duplicado y a un solo efecto en el lugar y la fecha indicados.');
     B.push({ t: 'firmas', izq: arr.map((a) => a.nombre || ''), der: [d.arrendatario.nombre || ''], etIzq: ARR, etDer: INQ });
-    if (d.amueblado) B.push({ t: 'h', x: 'ANEXO: INVENTARIO' }, { t: 'p', x: 'Mobiliario, enseres y electrodomésticos que se entregan con el inmueble:' }, ...Array.from({ length: 8 }, () => ({ t: 'p', x: '______________________________________________________________' })));
+    if (d.amueblado) B.push({ t: 'salto' }, { t: 'h', x: 'ANEXO: INVENTARIO' }, { t: 'p', x: 'Mobiliario, enseres y electrodomésticos que se entregan con el inmueble:' }, ...Array.from({ length: 8 }, () => ({ t: 'p', x: '______________________________________________________________' })));
     // Contracciones: «a EL ARRENDATARIO» → «al ARRENDATARIO», «de EL» → «del»
     const contrae = (x) => String(x).replace(/\b([Aa]) EL (ARRENDA)/g, '$1l $2').replace(/\b([Dd])e EL (ARRENDA)/g, '$1el $2');
     for (const b of B) if (b.x) b.x = contrae(b.x);
@@ -150,6 +150,7 @@
     d.alPaginar = () => { pag++; pie(); };
     pie();
     for (const b of doc.bloques) {
+      if (b.t === 'salto') { d.pagina(); continue; }
       if (b.t === 'titulo') { d.rect(M, d.y, 40, 3, acento); d.y += 14; d.parrafo(b.x, { size: 13.5, negrita: true, interlinea: 1.3 }); d.y += 8; }
       else if (b.t === 'h') { d.salto(40); d.y += 8; d.texto(M, d.y, b.x, { size: 10.5, negrita: true }); d.y += 18; }
       else if (b.t === 'c') { d.salto(46); d.y += 6; d.texto(M, d.y, `${b.n}. ${b.x}`, { size: 10, negrita: true }); d.y += 15; }
@@ -170,7 +171,8 @@
   function docx(doc, zip) {
     let body = '';
     for (const b of doc.bloques) {
-      if (b.t === 'titulo') body += par(run(b.x, { b: 1, sz: 28 }), { jc: 'center', antes: 0, despues: 240 });
+      if (b.t === 'salto') body += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+      else if (b.t === 'titulo') body += par(run(b.x, { b: 1, sz: 28 }), { jc: 'center', antes: 0, despues: 240 });
       else if (b.t === 'h') body += par(run(b.x, { b: 1 }), { antes: 240, despues: 120, keep: 1, jc: 'center' });
       else if (b.t === 'c') body += par(run(`${b.n}. ${b.x}`, { b: 1 }), { antes: 200, despues: 80, keep: 1 });
       else if (b.t === 'p') body += par(run(b.x), { jc: 'both', antes: 0, despues: 120 });

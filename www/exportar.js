@@ -54,16 +54,22 @@
     for (const f of t.filas) { filas.push(`<row r="${r}">${t.columnas.map((c, i) => celda(f[i], c, i)).join('')}</row>`); r++; }
     if (t.totales) { filas.push(`<row r="${r}">${t.columnas.map((c, i) => (i === 0 ? `<c r="A${r}" t="inlineStr" s="1"><is><t>${esc(T('Total'))}</t></is></c>` : celda(t.totales[i], c, i, true))).join('')}</row>`); r++; }
     const anchos = t.columnas.map((c, i) => Math.min(60, Math.max(c.t.length + 2, c.tipo === 'euros' ? 13 : c.tipo === 'fecha' ? 11 : 8, ...t.filas.slice(0, 300).map((f) => (f[i] == null ? 0 : String(c.tipo === 'euros' ? (f[i] / 100).toFixed(2) : f[i]).length + 2)))));
+    t._cab = cab;
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`
-      + `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${cab}" topLeftCell="A${cab + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
+      + `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"><pane ySplit="${cab}" topLeftCell="A${cab + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
       + `<cols>${anchos.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${filas.join('')}</sheetData>`
-      + (t.filas.length ? `<autoFilter ref="A${cab}:${col(t.columnas.length - 1)}${cab + t.filas.length}"/>` : '') + `</worksheet>`;
+      + (t.filas.length ? `<autoFilter ref="A${cab}:${col(t.columnas.length - 1)}${cab + t.filas.length}"/>` : '')
+      // Impresión: horizontal si hay muchas columnas, ajustada al ancho de la página, con la cabecera repetida y páginas numeradas
+      + `<printOptions gridLines="0"/><pageMargins left="0.4" right="0.4" top="0.5" bottom="0.6" header="0.3" footer="0.3"/>`
+      + `<pageSetup paperSize="9" orientation="${t.columnas.length > 6 ? 'landscape' : 'portrait'}" fitToWidth="1" fitToHeight="0"/>`
+      + `<headerFooter><oddFooter>&amp;L${esc(t.titulo)}&amp;R&amp;P / &amp;N</oddFooter></headerFooter></worksheet>`;
   }
   function xlsx(tablas) {
     const nombres = tablas.map((t, i) => (t.hoja || t.titulo).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || `Hoja${i + 1}`);
+    const hs = tablas.map((t) => hoja(t));
     const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${tablas.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`;
     const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-    const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${nombres.map((n, i) => `<sheet name="${esc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`;
+    const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${nombres.map((n, i) => `<sheet name="${esc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets><definedNames>${tablas.map((t, i) => (t.filas.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${esc(nombres[i].replace(/'/g, "''"))}'!$A$${t._cab}:$${col(t.columnas.length - 1)}$${t._cab + t.filas.length}</definedName>` : '') + `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${esc(nombres[i].replace(/'/g, "''"))}'!$${t._cab}:$${t._cab}</definedName>`).join('')}</definedNames></workbook>`;
     const wbr = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${tablas.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${tablas.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
     const st = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00\\ &quot;€&quot;"/><numFmt numFmtId="165" formatCode="dd/mm/yyyy"/></numFmts>`
       + `<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts>`
@@ -71,7 +77,7 @@
       + `<borders count="2"><border/><border><bottom style="thin"><color rgb="FF999999"/></bottom></border></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>`
       + `<cellXfs count="6"><xf/><xf fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="165" applyNumberFormat="1"/><xf fontId="2" applyFont="1"/><xf numFmtId="164" fontId="1" applyNumberFormat="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
     return zip([{ nombre: '[Content_Types].xml', datos: ct }, { nombre: '_rels/.rels', datos: rels }, { nombre: 'xl/workbook.xml', datos: wb }, { nombre: 'xl/_rels/workbook.xml.rels', datos: wbr },
-      { nombre: 'xl/styles.xml', datos: st }, ...tablas.map((t, i) => ({ nombre: `xl/worksheets/sheet${i + 1}.xml`, datos: hoja(t) }))]);
+      { nombre: 'xl/styles.xml', datos: st }, ...tablas.map((t, i) => ({ nombre: `xl/worksheets/sheet${i + 1}.xml`, datos: hs[i] }))]);
   }
 
   // ---------- Listados ----------
@@ -97,7 +103,7 @@
       return { columnas: [C('Nombre'), C('DNI/NIE'), C('Teléfono'), C('Correo'), C('Domicilio'), C('Contratos activos'), C('Notas')], filas }; } },
     contratos: { titulo: 'Contratos', icono: 'doc', crear(s, F, hoy) {
       const filas = s.contratos.filter((c) => filtraCt(s, c, F)).map((c) => [por(s.inmuebles, c.inmuebleId).nombre, por(s.inquilinos, c.inquilinoId).nombre, c.inicio, MA.finEfectivo(c), est(MA.situacionContrato(c, hoy)),
-        MA.rentaActual(c, hoy), c.diaCobro, c.fianza, MA.saldoFianza(s, c.id), c.deposito && c.deposito.fecha ? fmt(c.deposito.fecha) + (c.deposito.referencia ? ' · ' + c.deposito.referencia : '') : '', T(MA.INDICES[c.actualizacion] || '')]);
+        MA.rentaActual(c, hoy), c.diaCobro, c.fianza, MA.saldoFianza(s, c.id), c.deposito && c.deposito.fecha ? fmt(c.deposito.fecha) + (c.deposito.referencia ? ' · ' + c.deposito.referencia : '') : '', c.actualizacion === 'irav' ? 'IRAV' : c.actualizacion === 'fijo' ? `${String(c.actualizacionPct == null ? '' : c.actualizacionPct).replace('.', ',')} %` : T(MA.INDICES[c.actualizacion] || '')]);
       return { columnas: [C('Inmueble'), C('Inquilino'), C('Inicio', 'fecha'), C('Fin', 'fecha'), C('Estado'), C('Renta actual', 'euros'), C('Día de cobro', 'num'), C('Fianza acordada', 'euros'), C('Fianza en tu poder', 'euros'), C('Depósito'), C('Actualización')], filas }; } },
     recibos: { titulo: 'Recibos de alquiler', icono: 'euro', fechas: true, crear(s, F, hoy) {
       const filas = MA.cargos(s, hoy, (c) => filtraCt(s, ctDe(s, c.contratoId), F) && enRango(c.vence, F) && (!F.estado || F.estado === 'todos' || (F.estado === 'pendientes' ? !['pagado', 'anulado'].includes(MA.estadoCargo(s, c, hoy)) : MA.estadoCargo(s, c, hoy) === F.estado)))
@@ -106,8 +112,8 @@
     cobros: { titulo: 'Cobros recibidos', icono: 'euro', fechas: true, crear(s, F, hoy) {
       const cg = new Map(MA.cargos(s, hoy).map((c) => [c.id, c]));
       const filas = s.pagos.filter((p) => { const c = cg.get(p.cargoId); return c && filtraCt(s, ctDe(s, c.contratoId), F) && enRango(p.fecha, F); }).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id - b.id)
-        .map((p) => { const c = cg.get(p.cargoId); return [p.fecha, c.inmueble, c.inquilino, mes(c.periodo), p.anulado ? 0 : p.importe, p.metodo, T(p.origen === 'estimado' ? 'Estimado' : 'Real'), p.anulado ? `${T('Anulado')} ${fmt(p.anulado.fecha)}: ${p.anulado.motivo}` : '', p.notas]; });
-      return { columnas: [C('Fecha', 'fecha'), C('Inmueble'), C('Inquilino'), C('Mes del alquiler'), C('Importe', 'euros'), C('Método'), C('Origen'), C('Anulación'), C('Notas')], filas, totales: [null, null, null, null, sum(filas, 4)] }; } },
+        .map((p) => { const c = cg.get(p.cargoId); return [p.fecha, c.inmueble, c.inquilino, mes(c.periodo), p.anulado ? 0 : p.importe, p.metodo, p.origen === 'estimado' ? T('Sí') : '', p.anulado ? `${T('Anulado')} ${fmt(p.anulado.fecha)}: ${p.anulado.motivo}` : '', p.notas]; });
+      return { columnas: [C('Fecha', 'fecha'), C('Inmueble'), C('Inquilino'), C('Mes del alquiler'), C('Importe', 'euros'), C('Método'), C('Estimado'), C('Anulación'), C('Notas')], filas, totales: [null, null, null, null, sum(filas, 4)] }; } },
     facturas: { titulo: 'Facturas', icono: 'informe', fechas: true, crear(s, F, hoy) {
       const filas = MA.cargos(s, hoy, (c) => c.base != null && !c.anulado && filtraCt(s, ctDe(s, c.contratoId), F) && enRango(MA.masDias(c.periodo + '-01', 0), F))
         .sort((a, b) => a.periodo.localeCompare(b.periodo) || a.id - b.id).map((c) => { const q = por(s.inquilinos, ctDe(s, c.contratoId).inquilinoId) || {};
@@ -122,7 +128,7 @@
         for (const pt of x.partes ? x.partes.map((y) => [y.contratoId, y.pendiente]) : [[x.contratoId, x.porCobrar]]) if (pt[1] > 0 && pt[0] && filtraCt(s, ctDe(s, pt[0]), F)) g.set(pt[0], (g.get(pt[0]) || 0) + pt[1]); }
       const ids = new Set([...m.keys(), ...g.keys()]);
       const filas = [...ids].map((k) => { const e = m.get(k), ct = ctDe(s, k), q = por(s.inquilinos, ct.inquilinoId);
-        return [q.nombre, q.telefono, por(s.inmuebles, ct.inmuebleId).nombre, e ? e.n : 0, e ? e.meses.join(', ') : '', e ? e.deuda : 0, g.get(k) || 0, (e ? e.deuda : 0) + (g.get(k) || 0), e ? e.desde : null, e ? MA.diasEntre(e.desde, hoy) : null]; })
+        return [q.nombre, q.telefono, por(s.inmuebles, ct.inmuebleId).nombre, e ? e.n : 0, e ? e.meses.map(mes).join(', ') : '', e ? e.deuda : 0, g.get(k) || 0, (e ? e.deuda : 0) + (g.get(k) || 0), e ? e.desde : null, e ? MA.diasEntre(e.desde, hoy) : null]; })
         .sort((a, b) => b[7] - a[7]);
       return { columnas: [C('Inquilino'), C('Teléfono'), C('Inmueble'), C('Recibos atrasados', 'num'), C('Meses'), C('Rentas', 'euros'), C('Gastos por cobrar', 'euros'), C('Total', 'euros'), C('Desde', 'fecha'), C('Días', 'num')], filas, totales: [null, null, null, sum(filas, 3), null, sum(filas, 5), sum(filas, 6), sum(filas, 7)] }; } },
     gastos: { titulo: 'Gastos', icono: 'gasto', fechas: true, crear(s, F, hoy) {
@@ -145,8 +151,23 @@
       return { subtitulo: T('Últimos 12 meses'), columnas: [C('Inmueble'), C('Tipo'), C('Alquilado'), C('Renta mensual', 'euros'), C('Cobrado', 'euros'), C('Gastos', 'euros'), C('Cuotas de hipoteca', 'euros'), C('Neto', 'euros'), C('Inversión', 'euros'), C('Rentabilidad bruta %', 'num'), C('Rentabilidad neta %', 'num'), C('Hipoteca pendiente', 'euros')], filas,
         totales: [null, null, null, sum(filas, 3), sum(filas, 4), sum(filas, 5), sum(filas, 6), sum(filas, 7), sum(filas, 8), null, null, sum(filas, 11)] }; } },
     historial: { titulo: 'Historial de cambios', icono: 'reloj', fechas: true, crear(s, F) {
-      const filas = s.registro.filter((r) => enRango(r.fecha, F)).slice().reverse().map((r) => [r.fecha, T(r.que.replace(/_/g, ' ')), r.ref, r.detalle && r.detalle.importe != null ? r.detalle.importe : null, r.detalle && r.detalle.motivo ? r.detalle.motivo : '']);
-      return { columnas: [C('Fecha', 'fecha'), C('Cambio'), C('Referencia', 'num'), C('Importe', 'euros'), C('Detalle')], filas }; } },
+      // «A qué se refiere»: inmueble, inquilino y mes, en lugar del número interno
+      const ctTxt = (ct) => (ct ? [((por(s.inmuebles, ct.inmuebleId) || {}).nombre), ((por(s.inquilinos, ct.inquilinoId) || {}).nombre)].filter(Boolean).join(' · ') : '');
+      const cgTxt = (cg) => (cg && cg.periodo ? [ctTxt(por(s.contratos, cg.contratoId)), mes(cg.periodo)].filter(Boolean).join(' · ') : '');
+      const gTxt = (g) => (g ? [((por(s.inmuebles, g.inmuebleId) || {}).nombre), g.concepto, g.periodo].filter(Boolean).join(' · ') : '');
+      const sobre = (r) => { const q = r.que, id = r.ref;
+        if (q === 'pago') return cgTxt(por(s.cargos, id));
+        if (q === 'pago_anulado') { const p = por(s.pagos, id); return cgTxt(p && por(s.cargos, p.cargoId)); }
+        if (/^(recibo_|factura_)/.test(q)) return cgTxt(por(s.cargos, id));
+        if (/^(contrato_|renta_|fianza_)/.test(q)) { return ctTxt(por(s.contratos, id)); }
+        if (/^gasto_/.test(q)) return gTxt(por(s.gastos, id));
+        if (q === 'reembolso') { const r2 = por(s.reembolsos, id); return gTxt(r2 && por(s.gastos, r2.gastoId)); }
+        if (q === 'inmueble_creado') return (por(s.inmuebles, id) || {}).nombre || '';
+        if (q === 'tipo_cambiado' && r.detalle) return `${{ igic: 'IGIC', iva: 'IVA', ret: T('Retención IRPF') }[r.detalle.clave] || ''} ${r.detalle.pct != null ? String(r.detalle.pct).replace('.', ',') + ' %' : ''}`.trim();
+        return ''; };
+      const cambio = (q) => { const x = T(q.replace(/_$/, '').replace(/_/g, ' ')); return x.charAt(0).toUpperCase() + x.slice(1); };
+      const filas = s.registro.filter((r) => enRango(r.fecha, F)).slice().reverse().map((r) => [r.fecha, cambio(r.que), sobre(r), r.detalle && r.detalle.importe != null ? r.detalle.importe : null, r.detalle && r.detalle.motivo ? r.detalle.motivo : r.detalle && r.detalle.numero ? r.detalle.numero : '']);
+      return { columnas: [C('Fecha', 'fecha'), C('Cambio'), C('A qué se refiere'), C('Importe', 'euros'), C('Detalle')], filas }; } },
   };
   function crear(s, clave, F, hoy) {
     const L = LISTADOS[clave], t = L.crear(s, F || {}, hoy);

@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.8.1';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -49,7 +49,7 @@
       const txt = MA.exportar(S);
       await Almacen.guardar(txt);
       copiaProgramada(); actualizarWidget();
-      if (Avisos.disponible) Avisos.programar(S.ajustes.avisos ? [...MA.proximosAvisos(S, HOY, 60), ...avisoCopia()] : [], S.ajustes.horaAvisos || 9);
+      if (Avisos.disponible) Avisos.programar(S.ajustes.avisos && !S.ejemplo ? [...MA.proximosAvisos(S, HOY, 60), ...avisoCopia()] : [], S.ajustes.horaAvisos || 9);
     }, 300);
   }
   // ---------- Bloqueo con huella o PIN (se guarda en el propio móvil, no va en las copias) ----------
@@ -140,6 +140,7 @@
   function actualizarWidget() {
     if (!Widget.disponible) return;
     try {
+      if (S.ejemplo) return;
       if (leerBloq().activo) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Bloqueada'), linea2: Idioma.t('Abre la app para ver el resumen') });
       if (!S.contratos.length) return Widget.actualizar({ titulo: Idioma.t('Mis alquileres'), linea1: Idioma.t('Abre la app'), linea2: Idioma.t('Empieza en un minuto') });
       const m = MA.panel(S, HOY), d = deudas().reduce((t, x) => t + x.total, 0);
@@ -359,7 +360,7 @@
       const vencen = S.contratos.filter((ct) => ['por_vencer', 'vencido'].includes(MA.situacionContrato(ct, HOY)));
       const gPte = gs.filter((g) => !g.pagado && g.fecha < finMes).reverse(), gCob = gs.filter((g) => g.porCobrar > 0 && g.pagado);
       const m = k.mesActual, tareas = MA.avisosApp(S, HOY).filter((x) => /^(actualizacion|fianza_|copia)/.test(x.tipo));
-      return `${esIOSNavegador() ? `<div class="nota esp">En iPhone, pulsa <b>Compartir</b> y <b>Añadir a pantalla de inicio</b>, y ábrela siempre desde ese icono: así funciona sin conexión y no se borran tus datos.<div class="acc"><button class="btn txt peq" data-a="ocultarIOS">Entendido</button></div></div>` : ''}${S.ejemplo ? `<div class="nota esp">Estás viendo datos de ejemplo. Cuando quieras, bórralos y empieza con los tuyos.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Borrar el ejemplo y empezar</button></div></div>` : ''}<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
+      return `${esIOSNavegador() ? `<div class="nota esp">En iPhone, pulsa <b>Compartir</b> y <b>Añadir a pantalla de inicio</b>, y ábrela siempre desde ese icono: así funciona sin conexión y no se borran tus datos.<div class="acc"><button class="btn txt peq" data-a="ocultarIOS">Entendido</button></div></div>` : ''}${S.ejemplo ? (S.ejemploGuardado ? `<div class="nota esp">Estás viendo datos de ejemplo. Tus datos están guardados aparte y vuelven al salir.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Salir del ejemplo</button></div></div>` : `<div class="nota esp">Estás viendo datos de ejemplo. Cuando quieras, bórralos y empieza con los tuyos.<div class="acc"><button class="btn pri peq" data-a="finEjemplo">Borrar el ejemplo y empezar</button></div></div>`) : ''}<section class="mes"><div class="et">Cobrado en ${fmes(k.mes)}</div><div class="grande">${eur(m.cobrado)}</div><div class="de">de ${eur(m.esperado)}</div>
           <div class="barra-mes"><i data-w="${m.porcentaje || 0}"></i></div>
           <div class="pie"><span>Por cobrar <b>${eur(m.pendiente)}</b></span>${k.morosidad.deuda ? `<span>Atrasos <b>${eur(k.morosidad.deuda)}</b></span>` : ''}<span>Ocupación <b>${k.cartera.ocupacion == null ? '—' : String(k.cartera.ocupacion).replace('.', ',') + ' %'}</b></span></div></section>
         ${sec('Te deben', ds.length > 1 ? eur(ds.reduce((t, d) => t + d.total, 0)) : '', ds.map(deudaTar).join(''))}
@@ -397,7 +398,7 @@
         ${sec('Cuentas e informes', '', `<div class="lista">${item('#panel', 'grafico', 'Panel', 'Ocupación, deudas y rentabilidad')}${item('#informes', 'informe', 'Informes y listados', 'Todo en Excel o PDF, con filtros')}${item('#renta', 'renta', 'Informe para la Renta', 'Ingresos y gastos deducibles de cada año')}${S.cargos.some((c) => c.base != null) || S.contratos.some((c) => (c.impuesto && c.impuesto !== 'ninguno') || c.retencion) ? item('#impuestos', 'informe', 'Facturas e impuestos', 'IGIC, IVA y retenciones por trimestre') : ''}</div>`)}
         ${sec('Herramientas', '', `<div class="lista">${item('extracto', 'banco', 'Extracto del banco', 'Apunta cobros y recibos domiciliados de una vez')}${item('importarCartera', 'subir', 'Importar desde Excel', 'Inmuebles, inquilinos y contratos')}</div>`)}
         ${sec('La app', '', `<div class="lista">${item('#ajustes', 'ajustes', 'Ajustes y copias', 'Tus datos, mensajes, avisos y copia de seguridad')}${item('#apariencia', 'paleta', 'Apariencia e idioma', 'Colores, tamaño de letra e idioma')}
-          ${item('pro', 'estrella', S.pro ? 'Versión completa activada' : 'Versión completa', S.pro ? 'Inmuebles sin límite' : 'Gratis con un inmueble; pago único para añadir más')}${item('ayuda', 'ayuda', 'Ayuda', 'Cómo funciona y qué significan los estados')}</div>`)}
+          ${item('pro', 'estrella', S.pro ? 'Versión completa activada' : 'Versión completa', S.pro ? 'Inmuebles sin límite' : 'Gratis con un inmueble; pago único para añadir más')}${item('ejemplo', 'informe', 'Datos de ejemplo', S.ejemplo ? 'Los estás viendo ahora' : 'Prueba la app sin tocar tus datos')}${item('ayuda', 'ayuda', 'Ayuda', 'Cómo funciona y qué significan los estados')}</div>`)}
         <p class="sub centro">Mis alquileres ${APP_VERSION} · © 2026 IT Canarias</p>`;
     },
     inmuebles() {
@@ -482,7 +483,10 @@
           <div class="acc"><button class="btn" data-a="impXlsx">Excel</button><button class="btn" data-a="impPdf">PDF</button></div>
           <h3>Facturas</h3><div class="filas">${r.filas.map((f) => `<button class="fila-l" data-a="cobro" data-id="${f.id}"><span><b data-notr>${h(f.inquilino)}</b><br><span class="sub">${f.factura ? `<span data-notr>${h(f.factura)}</span> · ` : ''}${fmes(f.periodo)}</span></span><span class="der"><span class="imp">${eur(f.total)}</span><span class="sub">${h(Idioma.t('base'))} ${eur(f.base)}</span></span></button>`).join('')}</div>`
           : vacio('Sin facturas este trimestre', 'Las facturas salen de los contratos con IGIC, IVA o retención. Indícalo en el contrato (Editar › Factura).')}
-        <p class="sub esp">Resumen orientativo: revísalo con tu asesor antes de presentar.</p>`;
+        <p class="sub esp">Resumen orientativo: revísalo con tu asesor antes de presentar.</p>
+        ${sec('Tipos de impuestos', '', `<p class="sub">Si cambia el tipo general, indícalo aquí desde el mes en que se aplica. Los recibos anteriores, los cobrados y las facturas ya emitidas no cambian.</p>
+          <div class="filas">${[['igic', 'IGIC (Canarias)'], ['iva', 'IVA'], ['ret', 'Retención IRPF']].map(([k, nom]) => { const l = MA.tipos(S)[k], hoyP = HOY.slice(0, 7), act = MA.tipoEn(S, k, hoyP), fut = l.filter((x) => x.desde > hoyP);
+            return `<div class="fila-l"><span><b>${h(Idioma.t(nom))}</b><br><span class="sub">${h(Idioma.t(`Ahora: ${MA.pctTexto(act)}`))}${fut.map((x) => ` · ${h(Idioma.t(`${MA.pctTexto(x.pct)} desde ${fmes(x.desde)}`))}`).join('')}</span></span><span class="der"><button class="btn peq" data-a="tipoImp" data-k="${k}">Cambiar</button></span></div>`; }).join('')}</div>`)}`;
     },
     informes() {
       const F = V.filtros, op = (l, sel) => l.map((x) => `<option value="${x.id}"${sel === x.id ? ' selected' : ''}>${h(x.nombre)}</option>`).join('');
@@ -813,6 +817,26 @@
   }
 
   // ---------- Acciones (un solo manejador de clics) ----------
+  function cargarEjemplo(conDatos) {
+    {
+      const s = MA.nuevo(), H = HOY, m = (n) => MA.masMeses(H.slice(0, 7) + '-01', n); s.pro = true; s.ejemplo = true; s.ajustes.propietario = 'María Santana Perdomo';
+      const a = MA.crearInmueble(s, { nombre: 'Piso Calle Real 4', tipo: 'Vivienda', direccion: 'C/ Real 4, 2.º B, Arrecife', compraPrecio: 12000000, compraFecha: '2018-03-15' }, H);
+      const b = MA.crearInmueble(s, { nombre: 'Plaza de garaje 12', tipo: 'Plaza de garaje', direccion: 'Edif. Las Palmeras, sótano' }, H);
+      const c = MA.crearInmueble(s, { nombre: 'Trastero 3', tipo: 'Trastero' }, H);
+      const qa = MA.crearInquilino(s, { nombre: 'Ana Pérez Gil', telefono: '600111222' }), qb = MA.crearInquilino(s, { nombre: 'Luis Gómez' }), qc = MA.crearInquilino(s, { nombre: 'Marta Cabrera' });
+      const ca = MA.crearContrato(s, { inmuebleId: a.id, inquilinoId: qa.id, inicio: m(-14), importe: 75000, fianza: 75000, diaCobro: 1 }, H);
+      MA.crearContrato(s, { inmuebleId: b.id, inquilinoId: qb.id, inicio: m(-6), importe: 6000, diaCobro: 5 }, H);
+      MA.crearContrato(s, { inmuebleId: c.id, inquilinoId: qc.id, inicio: m(-3), importe: 4000, diaCobro: 10 }, H);
+      // Ana debe los dos últimos meses; los demás van al día
+      MA.generarCargos(s, H); for (const cg of s.cargos) if ((cg.periodo < m(-1).slice(0, 7) || cg.contratoId !== ca.id) && cg.vence <= H) MA.registrarPago(s, { cargoId: cg.id, importe: cg.importe, fecha: cg.vence, metodo: cg.contratoId === ca.id ? 'Transferencia' : 'Bizum' }, H);
+      MA.registrarFianza(s, { contratoId: ca.id, tipo: 'recibida', importe: 75000, fecha: ca.inicio }, H);
+      try { MA.registrarDeposito(s, ca.id, { organismo: 'Instituto Canario de la Vivienda', fecha: MA.masDias(ca.inicio, 20), referencia: 'ICV-2025-0412' }, H); } catch (e) { /* opcional */ }
+      MA.ponerHipoteca(s, a.id, { importe: 9000000, tin: 2.5, anios: 25, inicio: '2018-04-15' }, H);
+      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'Comunidad', categoria: 'comunidad', periodicidad: 'mensual', importe: 4550, dia: 5, domiciliado: true }, H);
+      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'IBI', categoria: 'impuesto', periodicidad: 'anual', mesInicio: 9, importe: 38000 }, H);
+      s.pro = S.pro; if (conDatos) s.ejemploGuardado = true; S = s; alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Datos de ejemplo cargados');
+    }
+  }
   const A = {
     cerrar, ayuda() { hoja('Ayuda', AYUDA); }, pro() { hojaPro(); },
     mes(_, el) { V.mes = MA.mesMas(V.mes, +el.dataset.d); pinta(); }, anio(_, el) { V.anio = String(+V.anio + +el.dataset.d); pinta(); }, verArchivados() { V.archivados = !V.archivados; pinta(); },
@@ -1012,6 +1036,15 @@
       r.mes = Idioma.mes(r.mes, l);
       Archivos.compartirBytes(`${Idioma.tr(l)('factura')}-${r.numero}.pdf`, PDF.factura(r, { t: Idioma.tr(l), acento: leerAp().acento }), 'application/pdf', texto('recibo_pdf', q, { nombre: pila(c.inquilino), inmueble: c.inmueble, mes: fmes(c.periodo) }))
         .catch(() => toast('No se ha podido crear el PDF')); if (r.avisos.length) toast(r.avisos[0]); pinta(); } catch (e) { fallo(e); } },
+    tipoImp(_, el) { const k = el.dataset.k, l = MA.tipos(S)[k], nom = { igic: 'IGIC', iva: 'IVA', ret: 'Retención IRPF' }[k];
+      const enero = `${+HOY.slice(0, 4) + 1}-01`;
+      formulario({ titulo: Idioma.t(`Cambiar ${nom}`), boton: 'Guardar el nuevo tipo', valores: { pct: MA.tipoEn(S, k, HOY.slice(0, 7)), desde: enero },
+        defs: [{ html: `<p class="sub">${h(Idioma.t('Historial'))}: ${l.map((x) => h(Idioma.t(`${MA.pctTexto(x.pct)} desde ${x.desde === '2000-01' ? 'siempre' : fmes(x.desde)}`))).join(' · ')}</p>` },
+          { k: 'pct', e: 'Nuevo tipo (%)', t: 'num', req: 1 }, { k: 'desde', e: 'Se aplica desde el mes', t: 'month', req: 1, ayuda: 'Por ejemplo, enero si el cambio es para el año que viene.' },
+          { html: '<p class="nota">Los contratos con un tipo propio (por ejemplo, un tipo reducido) mantienen el suyo.</p>' },
+          ...(l.length > 1 ? [{ html: `<div class="acc">${l.filter((x) => x.desde !== '2000-01').map((x) => `<button type="button" class="btn txt peq rojo" data-a="quitarTipo" data-k="${k}" data-d="${x.desde}">${h(Idioma.t(`Quitar el cambio de ${fmes(x.desde)}`))}</button>`).join('')}</div>` }] : [])],
+        alGuardar: (d) => MA.cambiarTipo(S, k, d.pct, d.desde, HOY), despues: (n) => toast(n ? Idioma.t(n === 1 ? 'Tipo guardado; 1 recibo actualizado' : `Tipo guardado; ${n} recibos actualizados`) : 'Tipo guardado') }); },
+    quitarTipo(_, el) { const k = el.dataset.k, d = el.dataset.d; confirma('Quitar el cambio de tipo', Idioma.t(`Los recibos desde ${fmes(d)} que aún no estén cobrados ni facturados volverán al tipo anterior.`), 'Quitar', () => { const n = MA.quitarTipo(S, k, d, HOY); guardar(); cerrar(); pinta(); toast(n ? `Cambio quitado; ${n} recibos actualizados` : 'Cambio quitado'); }); },
     triImp(_, el) { let a = V.impAnio, q = V.impTri + Number(el.dataset.d); if (q < 1) { q = 4; a--; } if (q > 4) { q = 1; a++; } V.impAnio = a; V.impTri = q; pinta(); },
     emitirFacturas() { const r = MA.resumenTrimestre(S, V.impAnio, V.impTri, HOY); let n = 0; for (const f of r.filas) if (!f.factura) { MA.datosFactura(S, f.id, HOY); n++; } guardar(); pinta(); toast(n === 1 ? 'Emitida 1 factura' : `Emitidas ${n} facturas`); },
     impXlsx() { const tab = Exportar.crear(S, 'facturas', { desde: `${V.impAnio}-${String((V.impTri - 1) * 3 + 1).padStart(2, '0')}-01`, hasta: MA.masDias(MA.masMeses(`${V.impAnio}-${String(V.impTri * 3).padStart(2, '0')}-01`, 1), -1) }, HOY);
@@ -1076,21 +1109,17 @@
     volverDoc(i) { const a = por(S.adjuntos, i); abrirPadre(a.tipo, a.refId); },
     borrarDoc(i) { const a = por(S.adjuntos, i); confirma('Eliminar documento', `Se eliminará «${a.nombre}» de la app.`, 'Eliminar', () => { const arch = MA.quitarAdjunto(S, i); Adjuntos.borrar(arch); guardar(); abrirPadre(a.tipo, a.refId); }); },
     ejemplo() {
-      const s = MA.nuevo(), H = HOY, m = (n) => MA.masMeses(H.slice(0, 7) + '-01', n); s.pro = true; s.ejemplo = true; s.ajustes.propietario = 'María Santana Perdomo';
-      const a = MA.crearInmueble(s, { nombre: 'Piso Calle Real 4', tipo: 'Vivienda', direccion: 'C/ Real 4, 2.º B, Arrecife', compraPrecio: 12000000, compraFecha: '2018-03-15' }, H);
-      const b = MA.crearInmueble(s, { nombre: 'Plaza de garaje 12', tipo: 'Plaza de garaje', direccion: 'Edif. Las Palmeras, sótano' }, H);
-      const c = MA.crearInmueble(s, { nombre: 'Trastero 3', tipo: 'Trastero' }, H);
-      const qa = MA.crearInquilino(s, { nombre: 'Ana Pérez Gil', telefono: '600111222' }), qb = MA.crearInquilino(s, { nombre: 'Luis Gómez' }), qc = MA.crearInquilino(s, { nombre: 'Marta Cabrera' });
-      const ca = MA.crearContrato(s, { inmuebleId: a.id, inquilinoId: qa.id, inicio: m(-14), importe: 75000, fianza: 75000, diaCobro: 1 }, H);
-      MA.crearContrato(s, { inmuebleId: b.id, inquilinoId: qb.id, inicio: m(-6), importe: 6000, diaCobro: 5 }, H);
-      MA.crearContrato(s, { inmuebleId: c.id, inquilinoId: qc.id, inicio: m(-3), importe: 4000, diaCobro: 10 }, H);
-      // Ana debe los dos últimos meses; los demás van al día
-      MA.generarCargos(s, H); for (const cg of s.cargos) if ((cg.periodo < m(-1).slice(0, 7) || cg.contratoId !== ca.id) && cg.vence <= H) MA.registrarPago(s, { cargoId: cg.id, importe: cg.importe, fecha: cg.vence, metodo: cg.contratoId === ca.id ? 'Transferencia' : 'Bizum' }, H);
-      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'Comunidad', categoria: 'comunidad', periodicidad: 'mensual', importe: 4550, dia: 5, domiciliado: true }, H);
-      MA.crearConcepto(s, { inmuebleId: a.id, concepto: 'IBI', categoria: 'impuesto', periodicidad: 'anual', mesInicio: 9, importe: 38000 }, H);
-      s.pro = S.pro; S = s; alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Datos de ejemplo cargados');
+      if (S.ejemplo) return toast('Ya estás viendo los datos de ejemplo');
+      if (!S.inmuebles.length && !S.inquilinos.length) return cargarEjemplo(false);
+      confirma('Ver la app con datos de ejemplo', 'Tus datos se guardan aparte y vuelven tal cual cuando salgas del ejemplo. Mientras tanto no se hacen copias ni se programan avisos.', 'Ver el ejemplo', async () => {
+        try { await Almacen.guardar(MA.exportar(S), 'antesEjemplo'); cargarEjemplo(true); } catch (e) { toast('No se ha podido guardar aparte tus datos'); } });
     },
-    finEjemplo() { confirma('Borrar el ejemplo', 'Se borrarán los datos de ejemplo y la app quedará lista para tus inmuebles.', 'Borrar y empezar', () => { const pro = S.pro; S = MA.nuevo(); S.pro = pro; guardar(); location.hash = '#inicio'; pinta(); }); },
+    finEjemplo() {
+      if (S.ejemploGuardado) return confirma('Salir del ejemplo', 'Se borran los datos de ejemplo y vuelven tus datos tal como estaban.', 'Volver a mis datos', async () => {
+        try { const txt = await Almacen.cargar('antesEjemplo'); const pro = S.pro; S = MA.importar(txt); S.pro = pro; await Almacen.guardar(null, 'antesEjemplo'); alDia(); guardar(); location.hash = '#inicio'; pinta(); toast('Tus datos han vuelto'); }
+        catch (e) { toast('No se han podido recuperar tus datos'); } });
+      confirma('Borrar el ejemplo', 'Se borrarán los datos de ejemplo y la app quedará lista para tus inmuebles.', 'Borrar y empezar', () => { const pro = S.pro; S = MA.nuevo(); S.pro = pro; guardar(); location.hash = '#inicio'; pinta(); });
+    },
     borrarTodo() { confirma('Borrar todos los datos', 'Se eliminarán inmuebles, inquilinos, contratos, cobros y gastos de este dispositivo. No se puede deshacer: guarda antes una copia si los quieres conservar.', 'Borrar todo', () => { const pro = S.pro; S = MA.nuevo(); S.pro = pro; guardar(); location.hash = '#inicio'; pinta(); toast('Datos borrados'); }); },
   };
   const AYUDA = `<h3>Cómo funciona</h3><p>Añade un <b>inmueble</b>, su <b>inquilino</b> y el <b>contrato</b>. Cada mes la app crea el recibo de alquiler. Cuando te paguen, pulsa <b>Cobrado</b> o abre el recibo para apuntar un pago parcial.</p>

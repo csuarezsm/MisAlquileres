@@ -198,6 +198,15 @@ try {
     await p.evaluate(() => window.__abrir()); await p.locator('#candado').waitFor({ state: 'hidden' });
     await p.evaluate(() => { localStorage.removeItem('ma.bloqueo'); delete document.hidden; window.Plataforma.Bloqueo.disponible = false; window.__ma.pinta(); });
   });
+  await paso('datos de ejemplo con datos propios: se guardan aparte y vuelven intactos al salir', async () => {
+    const antes = await p.evaluate(() => JSON.stringify(window.__ma.S));
+    await p.goto(URL0 + '#mas'); await p.locator('[data-a=ejemplo]').click(); await p.locator('#hoja [data-x=si]').click();
+    await p.locator('[data-a=finEjemplo]').waitFor(); let s = await S(p); assert.equal(s.ejemplo, true); assert.equal(s.ejemploGuardado, true); assert.equal(s.inmuebles[0].nombre, 'Piso Calle Real 4');
+    assert.match(await p.locator('.nota').first().innerText(), /guardados aparte/);
+    await p.locator('[data-a=finEjemplo]').click(); await p.locator('#hoja [data-x=si]').click(); await p.locator('#toast').getByText('Tus datos han vuelto').waitFor();
+    const despues = JSON.parse(await p.evaluate(() => JSON.stringify(window.__ma.S))), a = JSON.parse(antes);
+    assert.deepEqual(despues.inmuebles.map((x) => x.nombre), a.inmuebles.map((x) => x.nombre)); assert.equal(despues.pagos.length, a.pagos.length); assert.ok(!despues.ejemplo);
+  });
   await paso('apariencia: color y tamaño de letra se aplican y se guardan', async () => {
     await p.goto(URL0 + '#apariencia'); await p.locator('[data-a=ap][data-k=acento][data-v="#2c62c6"]').click(); await p.locator('[data-a=ap][data-k=fs][data-v="1.15"]').click();
     const ap = await p.evaluate(() => JSON.parse(localStorage.getItem('ma.ap'))); assert.equal(ap.acento, '#2c62c6'); assert.equal(ap.fs, 1.15);
@@ -244,6 +253,10 @@ try {
     const [d] = await Promise.all([q.waitForEvent('download'), q.locator('#hoja [data-a=facturaPdf]').click()]); const b = fs.readFileSync(await d.path(), 'latin1');
     assert.ok(b.startsWith('%PDF') && /Factura/.test(b) && /IGIC/.test(b) && /B35000000/.test(b));
     const s = await S(q); assert.ok(s.cargos.some((c) => c.factura && /^F\d{4}-\d{4}$/.test(c.factura.numero)));
+    await q.keyboard.press('Escape'); await q.locator('[data-a=tipoImp][data-k=igic]').click(); await campo(q, 'pct').fill('7,5'); await guardar(q); await q.locator('#toast').getByText(/Tipo guardado/).waitFor();
+    const s2 = await S(q), en = `${+new Date().toISOString().slice(0, 4) + 1}-01`; assert.deepEqual(s2.ajustes.tipos.igic.map((x) => [x.desde, x.pct]), [['2000-01', 7], [en, 7.5]]);
+    assert.ok(s2.cargos.filter((c) => c.base != null).every((c) => c.pct === 7), 'los recibos de este año no cambian');
+    assert.match(await q.locator('.sec').filter({ hasText: 'Tipos de impuestos' }).innerText(), /7,5 %/);
     if (process.env.RECOGER) await recoger(q); await q.context().close();
   });
   await paso('contrato para firmar en PDF y Word, y acta de entrada con foto y firma', async () => {

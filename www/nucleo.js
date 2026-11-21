@@ -167,17 +167,52 @@
   // Impuesto indirecto de la renta (locales, oficinas, naves…). En Canarias, IGIC; en la península y Baleares, IVA.
   const IMPUESTOS = { ninguno: { nombre: '', pct: 0 }, igic: { nombre: 'IGIC', pct: 7 }, iva: { nombre: 'IVA', pct: 21 } };
   const RETENCION = 19;
-  function desglose(ct, base) {
-    const tipo = IMPUESTOS[ct.impuesto] && ct.impuesto !== 'ninguno' ? ct.impuesto : null, pct = tipo ? (ct.impuestoPct != null ? ct.impuestoPct : IMPUESTOS[tipo].pct) : 0;
-    const cuota = Math.round(base * pct / 100), ret = ct.retencion ? Math.round(base * RETENCION / 100) : 0;
-    return { base, impuesto: tipo, pct, cuota, ret, importe: base + cuota - ret };
+  // Tipos generales con fecha de efecto (mes «AAAA-MM»). Cada recibo usa el vigente en su mes y lo guarda,
+  // así los recibos y facturas anteriores nunca cambian aunque cambie el tipo.
+  const TIPOS_DEF = { igic: [{ desde: '2000-01', pct: 7 }], iva: [{ desde: '2000-01', pct: 21 }], ret: [{ desde: '2000-01', pct: RETENCION }] };
+  function tipos(s) { const t = (s.ajustes && s.ajustes.tipos) || {}; return { igic: t.igic && t.igic.length ? t.igic : TIPOS_DEF.igic, iva: t.iva && t.iva.length ? t.iva : TIPOS_DEF.iva, ret: t.ret && t.ret.length ? t.ret : TIPOS_DEF.ret }; }
+  function tipoEn(s, clave, periodo) { const l = tipos(s)[clave]; let v = l[0].pct; for (const x of l) if (x.desde <= periodo) v = x.pct; return v; }
+  function desglose(s, ct, base, periodo) {
+    const tipo = IMPUESTOS[ct.impuesto] && ct.impuesto !== 'ninguno' ? ct.impuesto : null, p = periodo || '9999-12';
+    const pct = tipo ? (ct.impuestoPct != null ? ct.impuestoPct : tipoEn(s, tipo, p)) : 0, retPct = ct.retencion ? tipoEn(s, 'ret', p) : 0;
+    const cuota = Math.round(base * pct / 100), ret = Math.round(base * retPct / 100);
+    return { base, impuesto: tipo, pct, cuota, retPct, ret, importe: base + cuota - ret };
   }
   // Importe del recibo: lo que el inquilino paga de verdad (base + impuesto − retención). Si no hay ni impuesto ni retención, la base.
-  function fijarImporte(ct, cg, base) {
-    const d = desglose(ct, base);
-    if (d.impuesto || d.ret) Object.assign(cg, { base, impuesto: d.impuesto, pct: d.pct, cuota: d.cuota, ret: d.ret, importe: d.importe });
-    else { delete cg.base; delete cg.impuesto; delete cg.pct; delete cg.cuota; delete cg.ret; cg.importe = base; }
+  function fijarImporte(s, ct, cg, base) {
+    const d = desglose(s, ct, base, cg.periodo);
+    if (d.impuesto || d.ret) Object.assign(cg, { base, impuesto: d.impuesto, pct: d.pct, cuota: d.cuota, retPct: d.retPct, ret: d.ret, importe: d.importe });
+    else { delete cg.base; delete cg.impuesto; delete cg.pct; delete cg.cuota; delete cg.retPct; delete cg.ret; cg.importe = base; }
     return cg;
+  }
+  // Se puede recalcular un recibo si no tiene cobros ni factura emitida
+  const recalculable = (s, cg) => !cg.anulado && !cg.factura && pagadoDe(s, cg.id) === 0;
+  // Nuevo tipo general desde un mes: recalcula solo los recibos de ese mes en adelante que aún se pueden tocar
+  function cambiarTipo(s, clave, pct, desde, hoy) {
+    hoyOk(hoy);
+    if (!TIPOS_DEF[clave]) throw err('DATOS', 'Impuesto no válido');
+    const v = Number(String(pct).replace(',', '.'));
+    if (!(v >= 0 && v <= 50)) throw err('DATOS', 'Tipo de impuesto no válido');
+    if (!/^\d{4}-\d{2}$/.test(desde || '')) throw err('FECHA', 'Indica desde qué mes se aplica');
+    s.ajustes.tipos = s.ajustes.tipos || {};
+    const l = tipos(s)[clave].filter((x) => x.desde !== desde).concat([{ desde, pct: v }]).sort((a, b) => a.desde.localeCompare(b.desde));
+    s.ajustes.tipos[clave] = l;
+    let n = 0;
+    for (const cg of s.cargos) {
+      if (cg.base == null || cg.periodo < desde || !recalculable(s, cg)) continue;
+      const ct = por(s.contratos, cg.contratoId); if (!ct) continue;
+      const antes = cg.importe; fijarImporte(s, ct, cg, cg.base); if (cg.importe !== antes) n++;
+    }
+    anota(s, hoy, 'tipo_cambiado', 0, { clave, pct: v, desde, recibos: n });
+    return n;
+  }
+  function quitarTipo(s, clave, desde, hoy) {
+    const l = tipos(s)[clave]; if (l.length < 2) throw err('DATOS', 'Tiene que quedar al menos un tipo');
+    s.ajustes.tipos = s.ajustes.tipos || {}; s.ajustes.tipos[clave] = l.filter((x) => x.desde !== desde);
+    let n = 0;
+    for (const cg of s.cargos) { if (cg.base == null || cg.periodo < desde || !recalculable(s, cg)) continue; const ct = por(s.contratos, cg.contratoId); if (ct) { const a = cg.importe; fijarImporte(s, ct, cg, cg.base); if (cg.importe !== a) n++; } }
+    anota(s, hoyOk(hoy), 'tipo_cambiado', 0, { clave, quitado: desde, recibos: n });
+    return n;
   }
   const baseDe = (cg) => (cg.base != null ? cg.base : cg.importe);
   // Datos del contrato que no afectan a los recibos: uso, firma, actualización anual, IRPF y depósito de la fianza
@@ -238,7 +273,7 @@
     if (inicio !== ct.inicio) { ct.rentas[0].desde = inicio.slice(0, 7); }
     ct.inicio = inicio; ct.fin = fin;
     recortarCargos(s, ct, hoy); generarCargos(s, hoy);
-    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && pagadoDe(s, x.id) === 0)) { cg.vence = vence(cg.periodo, ct.diaCobro); fijarImporte(ct, cg, baseDe(cg)); }
+    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && pagadoDe(s, x.id) === 0)) { cg.vence = vence(cg.periodo, ct.diaCobro); if (!cg.factura) fijarImporte(s, ct, cg, baseDe(cg)); }
     anota(s, hoy, 'contrato_editado', i);
     return ct;
   }
@@ -254,7 +289,7 @@
     if (!(esCent(importe) && importe > 0)) throw err('IMPORTE', 'La renta debe ser mayor que 0');
     ct.rentas = ct.rentas.filter((r) => r.desde !== desde).concat({ desde, importe }).sort((a, b) => a.desde.localeCompare(b.desde));
     // Solo cambian los recibos sin ningún cobro; los ya cobrados o a medias conservan su importe
-    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && x.periodo >= desde && pagadoDe(s, x.id) === 0)) fijarImporte(ct, cg, rentaEn(ct, cg.periodo));
+    for (const cg of s.cargos.filter((x) => x.contratoId === i && !x.anulado && x.periodo >= desde && pagadoDe(s, x.id) === 0 && !x.factura)) fijarImporte(s, ct, cg, rentaEn(ct, cg.periodo));
     anota(s, hoy, 'renta_revisada', i, { desde, importe });
     return ct;
   }
@@ -303,7 +338,7 @@
       const f = finEfectivo(ct), tope = f && f.slice(0, 7) < mes ? f.slice(0, 7) : mes;
       for (let p = ct.inicio.slice(0, 7), i = 0; p <= tope && i < 1200; i++, p = mesMas(p, 1)) {
         if (hay.has(ct.id + '|' + p)) continue;
-        s.cargos.push(fijarImporte(ct, { id: id(s), contratoId: ct.id, periodo: p, vence: vence(p, ct.diaCobro), importe: 0, anulado: null, recordatorio: null }, rentaEn(ct, p)));
+        s.cargos.push(fijarImporte(s, ct, { id: id(s), contratoId: ct.id, periodo: p, vence: vence(p, ct.diaCobro), importe: 0, anulado: null, recordatorio: null }, rentaEn(ct, p)));
         n++;
       }
     }
@@ -358,9 +393,10 @@
   function ajustarCargo(s, i, importe, hoy) {
     const c = exige(s.cargos, i, 'Recibo'), ct = por(s.contratos, c.contratoId);
     if (!(esCent(importe) && importe >= 0)) throw err('IMPORTE', 'Importe no válido');
-    const nuevo = c.base != null ? desglose(ct, importe).importe : importe;
+    if (c.factura) throw err('FACTURA', `Este recibo ya tiene la factura ${c.factura.numero}: no se puede cambiar. Si hay un error, anúlalo y haz una rectificativa con tu asesor.`);
+    const nuevo = c.base != null ? desglose(s, ct, importe, c.periodo).importe : importe;
     if (nuevo < pagadoDe(s, i)) throw err('IMPORTE', 'El importe no puede ser menor que lo ya cobrado');
-    anota(s, hoyOk(hoy), 'recibo_ajustado', i, { antes: c.importe, ahora: nuevo }); if (c.base != null) fijarImporte(ct, c, importe); else c.importe = importe;
+    anota(s, hoyOk(hoy), 'recibo_ajustado', i, { antes: c.importe, ahora: nuevo }); if (c.base != null) fijarImporte(s, ct, c, importe); else c.importe = importe;
     return c;
   }
   function vistaCargo(s, c, hoy) {
@@ -719,7 +755,7 @@
       claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {}, actas: Array.isArray(s.actas) ? s.actas : [] };
   }
 
-  return { VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
+  return { VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, tipos, tipoEn, cambiarTipo, quitarTipo, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
     puedeCrearInmueble, crearInmueble, editarInmueble, archivarInmueble, eliminarInmueble, crearInquilino, editarInquilino, archivarInquilino, eliminarInquilino,
     crearContrato, editarContrato, revisarRenta, finalizarContrato, renovarContrato, eliminarContrato, situacionContrato, rentaEn, rentaActual, contratoEn, finEfectivo,
     generarCargos, pagadoDe, estadoCargo, registrarPago, anularPago, anularCargo, restaurarCargo, ajustarCargo, cargos,
