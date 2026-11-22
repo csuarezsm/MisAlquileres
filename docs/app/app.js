@@ -1,7 +1,7 @@
 /* Mis alquileres — interfaz. © 2026 IT Canarias. Las reglas están en nucleo.js; aquí solo se pinta y se recoge lo que escribe el usuario. */
 (function () {
   'use strict';
-  const APP_VERSION = '1.8.3';
+  const APP_VERSION = '1.9.0';
   const { Almacen, Archivos, Avisos, Tienda, Adjuntos, Drive, Bloqueo, Widget, NATIVO } = window.Plataforma;
   const $ = (q, el) => (el || document).querySelector(q);
   const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -135,7 +135,7 @@
       inmueble: { nombre: p.nombre, direccion: p.direccion || '', referencia: p.referencia || '', superficie: p.superficie || null, descripcion: p.descripcion || '' },
       inicio: ct.inicio, fin: ct.fin, anios: Number(o.anios) || 1, renta, rentaLetras: MA.eurosLetras(renta), diaPago: ct.diaCobro, formaPago: S.ajustes.formaPago || '', fianza: ct.fianza || 0, fianzaLetras: ct.fianza ? MA.eurosLetras(ct.fianza) : '',
       garantia: o.garantia || 0, actualizacion: ct.actualizacion || 'ipc', actualizacionPct: ct.actualizacionPct, gastos, impuesto: ct.impuesto && ct.impuesto !== 'ninguno' ? { nombre: MA.IMPUESTOS[ct.impuesto].nombre, pct: ct.impuestoPct != null ? ct.impuestoPct : MA.IMPUESTOS[ct.impuesto].pct } : null,
-      retencion: !!ct.retencion, retPct: MA.tipoEn(S, 'ret', HOY.slice(0, 7)), amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
+      ccaa: MA.ccaaDe(S, p.id) ? MA.CCAA[MA.ccaaDe(S, p.id)] : null, retencion: !!ct.retencion, retPct: MA.tipoEn(S, 'ret', HOY.slice(0, 7)), amueblado: !!o.amueblado, mascotas: !!o.mascotas, actividad: o.actividad, vehiculo: o.vehiculo, suministrosIncluidos: !!o.suministrosIncluidos, preaviso: Number(o.preaviso) || 30, adicionales: o.adicionales };
   }
   // Widget: lo que te deben y lo cobrado este mes. Con el bloqueo activado enseña recuentos sin importes (salvo que se pida verlos).
   function textosWidget() {
@@ -447,6 +447,7 @@
       const fila = (a, b, n) => `<tr><td>${n ? '<b>' + h(a) + '</b>' : h(a)}</td><td>${n ? '<b>' + b + '</b>' : b}</td></tr>`;
       return `<div class="nav"><button data-a="anioRenta" data-d="-1" aria-label="Año anterior">‹</button><b>Ejercicio ${V.renta}</b><button data-a="anioRenta" data-d="1" aria-label="Año siguiente"${V.renta >= +HOY.slice(0, 4) ? ' disabled' : ''}>›</button></div>
         <p class="nota">Resumen orientativo para preparar la declaración. Revísalo con Renta Web o con tu asesor: depende de que los datos estén completos.</p>
+        ${S.inmuebles.some((p) => ['paisvasco', 'navarra'].includes(MA.ccaaDe(S, p.id))) ? `<p class="nota">${h(Idioma.t('En el País Vasco y Navarra la Renta tiene normas forales propias (reducciones y deducciones distintas). Usa estos números como punto de partida y revísalos con tu asesor.'))}</p>` : ''}
         ${tits.length > 1 ? `<label class="f">Titular<select data-titular>${tits.map((x) => `<option value="${x.clave === 'yo' ? '' : h(x.clave)}"${(V.titular || '') === (x.clave === 'yo' ? '' : x.clave) ? ' selected' : ''}>${x.yo ? h(Idioma.t('Tú') + (x.nombre ? ' (' + x.nombre + ')' : '')) : h(x.nombre)}</option>`).join('')}</select></label>` : ''}
         ${act.length ? `<div class="kpis"><div class="kpi"><span>Ingresos</span><b>${eur(t.ingresos)}</b></div><div class="kpi"><span>Gastos deducibles</span><b>${eur(t.gastos)}</b></div>
           <div class="kpi"><span>Rendimiento neto</span><b>${eur(t.neto)}</b></div><div class="kpi"><span>Tras reducción</span><b>${eur(t.reducido)}</b></div></div>` : ''}
@@ -497,7 +498,7 @@
           : vacio('Sin facturas este trimestre', 'Las facturas salen de los contratos con IGIC, IVA o retención. Indícalo en el contrato (Editar › Factura).')}
         <p class="sub esp">Resumen orientativo: revísalo con tu asesor antes de presentar.</p>
         ${sec('Tipos de impuestos', '', `<p class="sub">Si cambia el tipo general, indícalo aquí desde el mes en que se aplica. Los recibos anteriores, los cobrados y las facturas ya emitidas no cambian.</p>
-          <div class="filas">${[['igic', 'IGIC (Canarias)'], ['iva', 'IVA'], ['ret', 'Retención IRPF']].map(([k, nom]) => { const l = MA.tipos(S)[k], hoyP = HOY.slice(0, 7), act = MA.tipoEn(S, k, hoyP), fut = l.filter((x) => x.desde > hoyP);
+          <div class="filas">${[['igic', 'IGIC (Canarias)'], ['iva', 'IVA'], ['ret', 'Retención IRPF']].filter(([k]) => impuestosEnUso().has(k)).map(([k, nom]) => { const l = MA.tipos(S)[k], hoyP = HOY.slice(0, 7), act = MA.tipoEn(S, k, hoyP), fut = l.filter((x) => x.desde > hoyP);
             return `<div class="fila-l"><span><b>${h(Idioma.t(nom))}</b><br><span class="sub">${h(Idioma.t(`Ahora: ${MA.pctTexto(act)}`))}${fut.map((x) => ` · ${h(Idioma.t(`${MA.pctTexto(x.pct)} desde ${fmes(x.desde)}`))}`).join('')}</span></span><span class="der"><button class="btn peq" data-a="tipoImp" data-k="${k}">Cambiar</button></span></div>`; }).join('')}</div>`)}`;
     },
     informes() {
@@ -532,10 +533,19 @@
     for (const a of document.querySelectorAll('.barra a')) { const on = a.dataset.v === principal; a.classList.toggle('on', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
   }
 
+  // Impuestos que interesan: los de los contratos, el de la comunidad de cada inmueble y la retención
+  function impuestosEnUso() {
+    const u = new Set(['ret']);
+    for (const c of S.contratos) if (c.impuesto && c.impuesto !== 'ninguno') u.add(c.impuesto);
+    for (const k of [S.ajustes.ccaa, ...S.inmuebles.map((p) => p.ccaa)]) if (MA.CCAA[k] && MA.CCAA[k].impuesto !== 'ninguno') u.add(MA.CCAA[k].impuesto);
+    if (u.size === 1) { u.add('igic'); u.add('iva'); }
+    return u;
+  }
   // ---------- Fichas y formularios de cada cosa ----------
+  const OP_CCAA = () => [['', 'Sin indicar'], ...Object.entries(MA.CCAA).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es')).map(([k, c]) => [k, c.nombre])];
   const opInmuebles = () => S.inmuebles.filter((p) => !p.archivado).map((p) => [p.id, p.nombre]);
   const D_INMUEBLE = [{ k: 'nombre', e: 'Nombre', req: 1, ayuda: 'Por ejemplo: Plaza 12, Piso de la calle Real…' }, { k: 'tipo', e: 'Tipo', t: 'select', op: MA.TIPOS.map((t) => [t, t]) },
-    { k: 'direccion', e: 'Dirección' }, { k: 'referencia', e: 'Referencia catastral' }, { k: 'porUnidades', t: 'check', e: 'Se alquila por habitaciones o unidades', ayuda: 'Permite varios contratos a la vez en este inmueble.' },
+    { k: 'direccion', e: 'Dirección' }, { k: 'ccaa', e: 'Comunidad autónoma', t: 'select', op: OP_CCAA(), ayuda: 'Decide el impuesto de los locales (IGIC en Canarias, IVA en el resto) y dónde se deposita la fianza.' }, { k: 'referencia', e: 'Referencia catastral' }, { k: 'porUnidades', t: 'check', e: 'Se alquila por habitaciones o unidades', ayuda: 'Permite varios contratos a la vez en este inmueble.' },
     { h: 'Compra y valor (opcional)' }, { k: 'compraPrecio', e: 'Precio de compra', t: 'dinero' }, { k: 'compraGastos', e: 'Gastos de compra (impuestos, notaría, reforma)', t: 'dinero' }, { k: 'compraFecha', e: 'Fecha de compra', t: 'date' },
     { k: 'valor', e: 'Valor actual estimado', t: 'dinero' },
     { h: 'Para el informe de la Renta (opcional)' }, { k: 'valorCatastral', e: 'Valor catastral total', t: 'dinero', ayuda: 'Viene en el recibo del IBI.' },
@@ -543,8 +553,8 @@
     { k: 'imputacionPct', e: 'Imputación de rentas por días vacíos', t: 'select', op: [[1.1, '1,1 % (valor catastral revisado desde 1994)'], [2, '2 % (no revisado)']] },
     { k: 'notas', e: 'Notas', t: 'area' }];
   function formInmueble(p) {
-    formulario({ titulo: p ? 'Editar inmueble' : 'Nuevo inmueble', defs: p ? D_INMUEBLE : [...D_INMUEBLE.slice(0, 5), { k: 'tipicos', t: 'check', e: 'Añadir los gastos habituales de este tipo (IBI, comunidad…)', def: true }, ...D_INMUEBLE.slice(5)], valores: p || { tipo: 'Plaza de garaje' },
-      alGuardar: (d) => { if (p) return MA.editarInmueble(S, p.id, d); const n = MA.crearInmueble(S, d, HOY); if (d.tipicos) MA.cargarTipicos(S, n.id, HOY); return n; },
+    formulario({ titulo: p ? 'Editar inmueble' : 'Nuevo inmueble', defs: p ? D_INMUEBLE : [...D_INMUEBLE.slice(0, 5), { k: 'tipicos', t: 'check', e: 'Añadir los gastos habituales de este tipo (IBI, comunidad…)', def: true }, ...D_INMUEBLE.slice(5)], valores: p || { tipo: 'Plaza de garaje', ccaa: S.ajustes.ccaa || '' },
+      alGuardar: (d) => { if (d.ccaa && !S.ajustes.ccaa) S.ajustes.ccaa = d.ccaa; if (p) return MA.editarInmueble(S, p.id, d); const n = MA.crearInmueble(S, d, HOY); if (d.tipicos) MA.cargarTipicos(S, n.id, HOY); return n; },
       despues: (n) => { if (!p) fichaInmueble(n.id); } });
   }
   function fichaInmueble(i) {
@@ -599,10 +609,11 @@
         { det: 'Más opciones: fin, fianza, avisos y actualización' }, { k: 'fin', e: 'Fecha de fin (vacía si no tiene)', t: 'date' },
         { k: 'fianza', e: 'Fianza acordada', t: 'dinero' }, { k: 'avisoMeses', e: 'Avisar del vencimiento con (meses)', t: 'num' },
         { k: 'actualizacion', e: 'Actualización anual de la renta', t: 'select', op: D_ACTUALIZACION, ayuda: 'Vivienda firmada desde el 26/05/2023: IRAV. Antes, o para otros usos: lo que diga el contrato (normalmente IPC).' },
-        { k: 'impuesto', e: 'Impuesto de la renta', t: 'select', op: [['ninguno', 'Sin impuesto (vivienda, o exento)'], ['igic', 'IGIC (Canarias)'], ['iva', 'IVA (península y Baleares)']], ayuda: 'Solo para locales, oficinas o naves: IGIC 7 % en Canarias, IVA 21 % en la península.' },
+        { k: 'impuesto', e: 'Impuesto de la renta', t: 'select', op: [['ninguno', 'Sin impuesto (vivienda, o exento)'], ['igic', 'IGIC (Canarias)'], ['iva', 'IVA (península y Baleares)']], ayuda: 'Solo para locales, oficinas o naves. Se elige solo según la comunidad del inmueble: IGIC en Canarias, IVA en el resto. En Ceuta y Melilla se aplica el IPSI, que la app no calcula.' },
         { k: 'retencion', t: 'check', e: 'El inquilino me practica retención (19 %)', ayuda: 'Habitual si el inquilino es una empresa o un autónomo.' },
         { k: 'historicoCobrado', t: 'check', e: 'Dar por cobrados los meses anteriores a este', ayuda: 'Solo si el contrato empezó antes de usar la app. Quedarán marcados como estimados.' }, { k: 'notas', e: 'Notas', t: 'area' }, { detFin: 1 }],
-      alMontar: (f) => { const ver = () => { $('#nuevoInq', f).hidden = f.elements.inquilinoId.value !== 'nuevo'; }; f.elements.inquilinoId.onchange = ver; ver(); },
+      alMontar: (f) => { const ver = () => { $('#nuevoInq', f).hidden = f.elements.inquilinoId.value !== 'nuevo'; }; f.elements.inquilinoId.onchange = ver; ver();
+        const imp = () => { f.elements.impuesto.value = MA.impuestoPorDefecto(S, +f.elements.inmuebleId.value); }; f.elements.inmuebleId.addEventListener('change', imp); imp(); },
       despues: (ct) => { if (ct && ct.fianza) toast('Contrato creado. Cuando cobres la fianza, apúntala en el contrato.'); },
       alGuardar: (d) => {
         if (d.importe == null) throw Object.assign(new Error('Indica la renta mensual'), { code: 'IMPORTE' });
@@ -615,7 +626,7 @@
   }
   function fichaContrato(i) {
     const ct = por(S.contratos, i); if (!ct) return cerrar();
-    const q = por(S.inquilinos, ct.inquilinoId) || {}, p = por(S.inmuebles, ct.inmuebleId) || {}, sit = MA.situacionContrato(ct, HOY), saldo = MA.saldoFianza(S, i), fin = MA.finEfectivo(ct);
+    const q = por(S.inquilinos, ct.inquilinoId) || {}, p = por(S.inmuebles, ct.inmuebleId) || {}, sit = MA.situacionContrato(ct, HOY), saldo = MA.saldoFianza(S, i), fin = MA.finEfectivo(ct), cc = MA.ccaaDe(S, ct.inmuebleId), org = MA.organismoFianza(S, ct.inmuebleId);
     const cs = MA.cargos(S, HOY, (c) => c.contratoId === i).reverse(), fz = S.fianzas.filter((f) => f.contratoId === i && !f.anulado), act = MA.actualizacionPendiente(S, ct, HOY), dep = ct.deposito || {};
     const deuda = cs.filter((c) => c.estado === 'atrasado' || (c.estado === 'parcial' && c.vence < HOY)).reduce((t, c) => t + c.pendiente, 0), activo = ct.estado === 'activo';
     const conFianza = ct.fianza > 0 || fz.length || saldo > 0;
@@ -629,8 +640,9 @@
       <p class="sub">Actualización anual: ${h(MA.INDICES[ct.actualizacion] || '—')}${ct.actualizacion === 'fijo' && ct.actualizacionPct != null ? ' (' + MA.pctTexto(ct.actualizacionPct) + ')' : ''}</p>
       ${conFianza ? `<h3>Fianza</h3><div class="kpis"><div class="kpi"><span>Acordada</span><b>${eur(ct.fianza)}</b></div><div class="kpi"><span>En tu poder</span><b>${eur(saldo)}</b></div></div>
         ${fz.length ? `<table class="t">${fz.map((f) => `<tr><td>${fecha(f.fecha)}, ${f.tipo}</td><td>${eur(f.importe)}</td></tr>`).join('')}</table>` : ''}
-        ${dep.fecha ? `<p class="sub">Depositada en ${h(dep.organismo)} el ${fecha(dep.fecha)}${dep.referencia ? ` (ref. ${h(dep.referencia)})` : ''}${dep.recuperado ? `. Recuperada el ${fecha(dep.recuperado)}` : ''}.</p>${!activo && !dep.recuperado ? `<div class="acc"><button class="btn peq" data-a="recuperarDeposito" data-id="${i}">Ya la he recuperado del organismo</button></div>` : ''}`
-          : !dep.noAplica && saldo > 0 ? `<p class="nota">Fianza sin depositar. En Canarias se deposita en el Instituto Canario de la Vivienda en el mes siguiente a la firma.</p><div class="acc"><button class="btn peq" data-a="deposito" data-id="${i}">Registrar el depósito</button><button class="btn txt peq" data-a="depositoNoAplica" data-id="${i}">No hay que depositarla</button></div>` : ''}
+        ${dep.fecha ? `<p class="sub">${dep.organismo ? `Depositada en ${h(dep.organismo)} el ${fecha(dep.fecha)}` : `Depositada el ${fecha(dep.fecha)}`}${dep.referencia ? ` (ref. ${h(dep.referencia)})` : ''}${dep.recuperado ? `. Recuperada el ${fecha(dep.recuperado)}` : ''}.</p>${!activo && !dep.recuperado ? `<div class="acc"><button class="btn peq" data-a="recuperarDeposito" data-id="${i}">Ya la he recuperado del organismo</button></div>` : ''}`
+          : !dep.noAplica && saldo > 0 && org === null ? `<p class="sub">${h(Idioma.t(`En ${MA.CCAA[cc].en || MA.CCAA[cc].nombre} no hace falta depositar la fianza: la guardas tú.`))}${MA.CCAA[cc].nota ? ' ' + h(Idioma.t(MA.CCAA[cc].nota)) : ''}</p>`
+          : !dep.noAplica && saldo > 0 ? `<p class="nota">${h(org ? Idioma.t(`Fianza sin depositar. En ${MA.CCAA[cc].en || MA.CCAA[cc].nombre} se deposita en ${org}, normalmente en el mes siguiente a la firma.`) : Idioma.t('Fianza sin depositar. Se deposita en el organismo de vivienda de tu comunidad autónoma. Indica la comunidad en los datos del inmueble y te diremos dónde.'))}</p><div class="acc"><button class="btn peq" data-a="deposito" data-id="${i}">Registrar el depósito</button><button class="btn txt peq" data-a="depositoNoAplica" data-id="${i}">No hay que depositarla</button></div>` : ''}
         <div class="acc">${!saldo ? `<button class="btn peq" data-a="fianza" data-id="${i}" data-t="recibida">Apuntar fianza recibida</button>` : `<button class="btn peq" data-a="fianza" data-id="${i}" data-t="devuelta">Devolver</button><button class="btn peq" data-a="fianza" data-id="${i}" data-t="retenida">Retener una parte</button>`}</div>` : ''}
       <h3>Para firmar</h3><div class="acc"><button class="btn peq" data-a="docContrato" data-id="${i}">Contrato</button><button class="btn peq" data-a="actaNueva" data-id="${i}" data-t="entrada">Acta de entrada</button><button class="btn peq" data-a="actaNueva" data-id="${i}" data-t="salida">Acta de salida</button></div>
       ${(S.actas || []).filter((x) => x.contratoId === i).length ? `<div class="filas">${S.actas.filter((x) => x.contratoId === i).map((x) => `<button class="fila-l" data-a="acta" data-id="${x.id}"><span><b>${h(Idioma.t(x.tipo === 'salida' ? 'Acta de salida' : 'Acta de entrada'))}</b><br><span class="sub">${fecha(x.fecha)}${x.firmas && x.firmas.arrendatario ? ' · ' + h(Idioma.t('Firmada')) : ''}</span></span>${svg('chev')}</button>`).join('')}</div>` : ''}
@@ -831,7 +843,7 @@
   // ---------- Acciones (un solo manejador de clics) ----------
   function cargarEjemplo(conDatos) {
     {
-      const s = MA.nuevo(), H = HOY, m = (n) => MA.masMeses(H.slice(0, 7) + '-01', n); s.pro = true; s.ejemplo = true; s.ajustes.propietario = 'María Santana Perdomo';
+      const s = MA.nuevo(), H = HOY, m = (n) => MA.masMeses(H.slice(0, 7) + '-01', n); s.pro = true; s.ejemplo = true; s.ajustes.propietario = 'María Santana Perdomo'; s.ajustes.ccaa = 'canarias';
       const a = MA.crearInmueble(s, { nombre: 'Piso Calle Real 4', tipo: 'Vivienda', direccion: 'C/ Real 4, 2.º B, Arrecife', compraPrecio: 12000000, compraFecha: '2018-03-15' }, H);
       const b = MA.crearInmueble(s, { nombre: 'Plaza de garaje 12', tipo: 'Plaza de garaje', direccion: 'Edif. Las Palmeras, sótano' }, H);
       const c = MA.crearInmueble(s, { nombre: 'Trastero 3', tipo: 'Trastero' }, H);
@@ -953,7 +965,7 @@
     avisarGasto(i, el) { const g = MA.gastos(S, HOY, (x) => x.id === i)[0], c = el && el.dataset.c ? Number(el.dataset.c) : null, x = c && g.partes ? g.partes.find((y) => y.contratoId === c) : null;
       const nom = x ? x.inquilino : g.inquilino, tel = x ? x.telefono : g.telefono, cid = x ? x.contratoId : g.contratoId;
       enviar('Mensaje a ' + nom, tel, texto('gasto', cid ? por(S.inquilinos, (por(S.contratos, cid) || {}).inquilinoId) : null, { nombre: pila(nom), inmueble: g.inmueble, concepto: g.concepto, periodo: g.periodo, importe: eur(x ? x.pendiente : g.porCobrar) }), () => { por(S.gastos, i).recordatorio = HOY; guardar(); }); },
-    misDatos() { formulario({ titulo: 'Mis datos', valores: S.ajustes, defs: [{ k: 'propietario', e: 'Tu nombre (firma de los mensajes y los recibos)' }, { k: 'dni', e: 'Tu DNI/NIF (aparece en los recibos)' }, { k: 'domicilio', e: 'Tu domicilio (opcional, para los recibos)' }, { k: 'formaPago', e: 'Forma de pago que indicas al inquilino', ayuda: 'Por ejemplo: Bizum al 600 000 000 o transferencia a ES00…' }], alGuardar: (d) => Object.assign(S.ajustes, d) }); },
+    misDatos() { formulario({ titulo: 'Mis datos', valores: S.ajustes, defs: [{ k: 'propietario', e: 'Tu nombre (firma de los mensajes y los recibos)' }, { k: 'dni', e: 'Tu DNI/NIF (aparece en los recibos)' }, { k: 'domicilio', e: 'Tu domicilio (opcional, para los recibos)' }, { k: 'ccaa', e: 'Comunidad autónoma de tus inmuebles', t: 'select', op: OP_CCAA(), ayuda: 'Se usa para los inmuebles nuevos; cada inmueble puede tener la suya.' }, { k: 'formaPago', e: 'Forma de pago que indicas al inquilino', ayuda: 'Por ejemplo: Bizum al 600 000 000 o transferencia a ES00…' }], alGuardar: (d) => Object.assign(S.ajustes, d) }); },
     plantillas() { const n = { cobro: 'Recordatorio de cobro', atraso: 'Pago atrasado (a los 3 días)', atraso2: 'Pago atrasado (a los 10 días)', recibo: 'Confirmación de pago', recibo_pdf: 'Envío del recibo en PDF', gasto: 'Cobro de un gasto', vencimiento: 'Vencimiento de contrato', actualizacion: 'Actualización anual de la renta' };
       const l = Idioma.actual, val = Object.fromEntries(Object.keys(n).map((k) => [k, plantilla(k, l)]));
       formulario({ titulo: 'Mensajes', valores: val, defs: Object.keys(n).map((k) => ({ k, e: n[k], t: 'area' })), alGuardar: (d) => {
@@ -1146,7 +1158,7 @@
     ine() { window.Plataforma.abrir('https://www.ine.es/'); },
     omitirActualizacion(i) { const u = MA.actualizacionPendiente(S, por(S.contratos, i), HOY); if (u) haz(() => MA.omitirActualizacion(S, i, u.fecha, HOY), cerrar); },
     // 10. Depósito de la fianza
-    deposito(i) { formulario({ titulo: 'Depósito de la fianza', valores: { organismo: 'Instituto Canario de la Vivienda', fecha: HOY }, defs: [{ k: 'organismo', e: 'Organismo' }, { k: 'fecha', e: 'Fecha del depósito', t: 'date', req: 1 }, { k: 'referencia', e: 'Número o referencia del depósito' }],
+    deposito(i) { formulario({ titulo: 'Depósito de la fianza', valores: { organismo: MA.sinArticulo(MA.organismoFianza(S, por(S.contratos, i).inmuebleId)), fecha: HOY }, defs: [{ k: 'organismo', e: 'Organismo' }, { k: 'fecha', e: 'Fecha del depósito', t: 'date', req: 1 }, { k: 'referencia', e: 'Número o referencia del depósito' }],
       alGuardar: (d) => MA.registrarDeposito(S, i, d, HOY), despues: () => fichaContrato(i), pie: '<p class="sub">Guarda el justificante en «Documentos y fotos» del contrato.</p>' }); },
     depositoNoAplica(i) { haz(() => MA.registrarDeposito(S, i, { noAplica: true }, HOY), () => fichaContrato(i)); },
     recuperarDeposito(i) { formulario({ titulo: 'Fianza recuperada', valores: { fecha: HOY }, defs: [{ k: 'fecha', e: 'Fecha en que te la devolvió el organismo', t: 'date', req: 1 }], alGuardar: (d) => MA.recuperarDeposito(S, i, d.fecha, HOY), despues: () => fichaContrato(i) }); },
@@ -1224,6 +1236,7 @@
     let lg = null; try { lg = localStorage.getItem('ma.idioma'); } catch (e) { /* */ }
     try { const txt = await Almacen.cargar(); if (txt) S = MA.importar(txt); } catch (e) { console.error(e); toast('No se han podido leer los datos guardados'); }
     Idioma.poner(lg || S.ajustes.idioma || Idioma.delSistema()); S.ajustes.idioma = Idioma.actual;
+    if (S.ajustes.ccaa === undefined) S.ajustes.ccaa = S.contratos.some((c) => c.impuesto === 'igic' || /Canari/.test((c.deposito || {}).organismo || '')) ? 'canarias' : '';
     await comprobarCompra(); alDia(); pinta(); guardar(); actualizarWidget();
     Avisos.preparar(alPulsarAviso);
     if (!NATIVO && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

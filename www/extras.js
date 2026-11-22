@@ -135,7 +135,7 @@
     hoyOk(hoy); const ct = exige(s.contratos, ctId, 'Contrato');
     if (d.noAplica) { ct.deposito = { ...ct.deposito, noAplica: true }; return ct; }
     if (!esFecha(d.fecha) || d.fecha > hoy) throw err('FECHA', 'Indica la fecha del depósito');
-    ct.deposito = { ...ct.deposito, organismo: texto(d.organismo) || 'Instituto Canario de la Vivienda', fecha: d.fecha, referencia: texto(d.referencia), noAplica: false };
+    ct.deposito = { ...ct.deposito, organismo: texto(d.organismo) || MA.sinArticulo(MA.organismoFianza(s, ct.inmuebleId)) || '', fecha: d.fecha, referencia: texto(d.referencia), noAplica: false };
     anota(s, hoy, 'fianza_depositada', ctId); return ct;
   }
   function recuperarDeposito(s, ctId, f, hoy) {
@@ -147,7 +147,7 @@
     const a = [];
     for (const ct of s.contratos) {
       const saldo = MA.saldoFianza(s, ct.id), dep = ct.deposito || {}, q = por(s.inquilinos, ct.inquilinoId) || {}, p = por(s.inmuebles, ct.inmuebleId) || {}, titulo = `${q.nombre} · ${p.nombre}`;
-      if (ct.estado === 'activo' && saldo > 0 && !dep.fecha && !dep.noAplica) {
+      if (ct.estado === 'activo' && saldo > 0 && !dep.fecha && !dep.noAplica && MA.organismoFianza(s, ct.inmuebleId) !== null) {
         const limite = masMeses(ct.firma || ct.inicio, 1);
         a.push({ tipo: 'fianza_deposito', id: ct.id, fecha: limite, importe: saldo, titulo, dias: diasEntre(hoy, limite) });
       }

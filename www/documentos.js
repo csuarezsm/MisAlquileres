@@ -102,7 +102,7 @@
     const fz = d.fianza || 0;
     c('Fianza y garantías', fz ? [
       `${INQ} entrega en este acto ${eur(fz)}${d.fianzaLetras ? ` (${d.fianzaLetras})` : ''} en concepto de fianza${LAU ? `, equivalente a ${T === 'vivienda' ? 'una mensualidad' : 'dos mensualidades'} de renta (artículo 36 de la Ley de Arrendamientos Urbanos)` : ''}, sirviendo este documento como carta de pago.`,
-      LAU || T === 'habitacion' ? `${ARR} depositará la fianza en el organismo que establezca la normativa de la comunidad autónoma (en Canarias, el Instituto Canario de la Vivienda).` : '',
+      LAU || T === 'habitacion' ? (d.ccaa && d.ccaa.fianza ? `${ARR} depositará la fianza en ${d.ccaa.fianza}, conforme a la normativa autonómica.` : d.ccaa ? `La normativa autonómica no exige depositar la fianza en ningún organismo, por lo que la conservará ${ARR}.${d.ccaa.nota && T === 'vivienda' ? ' ' + d.ccaa.nota : ''}` : `${ARR} depositará la fianza en el organismo que establezca la normativa de la comunidad autónoma donde se encuentra el inmueble.`) : '',
       `La fianza se devolverá a la finalización del contrato, en el plazo de un mes desde la entrega de las llaves, descontando, en su caso, el importe de los desperfectos imputables a ${INQ} y las cantidades que adeude. ${LAU ? 'Transcurrido ese plazo sin devolverla, devengará el interés legal.' : ''} La fianza no podrá aplicarse al pago de la renta.`,
       d.garantia ? `Además, ${INQ} entrega una garantía adicional de ${eur(d.garantia)}${T === 'vivienda' ? ', que no supera dos mensualidades de renta' : ''}, que se devolverá en las mismas condiciones que la fianza.` : '',
     ] : [`No se exige fianza.`]);

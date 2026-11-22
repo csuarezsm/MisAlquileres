@@ -30,7 +30,7 @@ try {
   const p = await pagina({}, true);
   await paso('arranque vacío: alta rápida, importar o paso a paso', async () => { await p.getByText('Empieza en un minuto').waitFor(); await foto(p, '00-vacio'); });
   await paso('alta de inmueble con gastos habituales', async () => {
-    await p.getByRole('button', { name: 'Paso a paso' }).click(); await campo(p, 'nombre').fill('Piso Calle Real 4'); await campo(p, 'tipo').selectOption('Vivienda');
+    await p.getByRole('button', { name: 'Paso a paso' }).click(); await campo(p, 'nombre').fill('Piso Calle Real 4'); await campo(p, 'tipo').selectOption('Vivienda'); await campo(p, 'ccaa').selectOption('canarias');
     await campo(p, 'compraPrecio').fill('120.000'); await guardar(p);
     await p.locator('#hoja').getByText('Gastos periódicos').waitFor(); const s = await S(p);
     assert.equal(s.inmuebles.length, 1); assert.equal(s.inmuebles[0].compraPrecio, 12000000); assert.equal(s.conceptos.length, 7);
@@ -124,7 +124,7 @@ try {
   await paso('depósito de la fianza en el Instituto Canario de la Vivienda', async () => {
     await p.goto(URL0 + '#inicio'); await p.locator('.tar', { hasText: 'Depositar la fianza' }).click();
     await campo(p, 'referencia').fill('ICV-123'); await guardar(p);
-    await p.locator('#hoja').getByText(/Depositada en Instituto Canario/).waitFor(); assert.equal((await S(p)).contratos[0].deposito.referencia, 'ICV-123'); await p.keyboard.press('Escape');
+    await p.locator('#hoja').getByText(/Depositada en Instituto Canario/).waitFor(); assert.equal((await S(p)).contratos[0].deposito.referencia, 'ICV-123'); assert.equal((await S(p)).ajustes.ccaa, 'canarias', 'la primera comunidad pasa a Mis datos'); await p.keyboard.press('Escape');
   });
   await paso('extracto del banco: propone, revisas y apunta sin duplicar', async () => {
     const s0 = await S(p), c = s0.cargos.find((x) => x.importe - s0.pagos.filter((y) => y.cargoId === x.id && !y.anulado).reduce((a, y) => a + y.importe, 0) > 0);

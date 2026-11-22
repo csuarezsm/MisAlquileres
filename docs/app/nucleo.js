@@ -41,6 +41,33 @@
   const euros = (c) => (c / 100).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
 
   // ---------- Estado ----------
+  // Comunidades autónomas: impuesto de los locales y dónde se deposita la fianza (null = no hace falta depositarla). Fuente: OCU, enero de 2026.
+  const CCAA = {
+    andalucia: { nombre: 'Andalucía', impuesto: 'iva', fianza: null },
+    aragon: { nombre: 'Aragón', impuesto: 'iva', fianza: 'la Dirección General de Vivienda y Rehabilitación del Gobierno de Aragón' },
+    asturias: { nombre: 'Asturias', impuesto: 'iva', fianza: null },
+    baleares: { nombre: 'Illes Balears', en: 'las Illes Balears', impuesto: 'iva', fianza: 'el Instituto Balear de la Vivienda (IBAVI)' },
+    canarias: { nombre: 'Canarias', impuesto: 'igic', fianza: 'el Instituto Canario de la Vivienda' },
+    cantabria: { nombre: 'Cantabria', impuesto: 'iva', fianza: null },
+    castillaleon: { nombre: 'Castilla y León', impuesto: 'iva', fianza: 'las Cámaras de la Propiedad Urbana de Castilla y León' },
+    castillamancha: { nombre: 'Castilla-La Mancha', impuesto: 'iva', fianza: 'la Dirección General de Vivienda de Castilla-La Mancha' },
+    cataluna: { nombre: 'Cataluña', impuesto: 'iva', fianza: "l'Institut Català del Sòl (INCASÒL)" },
+    valenciana: { nombre: 'Comunitat Valenciana', en: 'la Comunitat Valenciana', impuesto: 'iva', fianza: 'la Generalitat Valenciana (Dirección General de Tributos)' },
+    extremadura: { nombre: 'Extremadura', impuesto: 'iva', fianza: null },
+    galicia: { nombre: 'Galicia', impuesto: 'iva', fianza: 'el Instituto Galego da Vivenda e Solo (IGVS)' },
+    madrid: { nombre: 'Comunidad de Madrid', en: 'la Comunidad de Madrid', impuesto: 'iva', fianza: 'la Agencia de Vivienda Social de la Comunidad de Madrid' },
+    murcia: { nombre: 'Región de Murcia', en: 'la Región de Murcia', impuesto: 'iva', fianza: null },
+    navarra: { nombre: 'Navarra', impuesto: 'iva', fianza: null, nota: 'Los contratos de vivienda se inscriben en el Registro de Contratos de Arrendamiento de Vivienda de Navarra en el plazo de un mes.' },
+    paisvasco: { nombre: 'País Vasco', en: 'el País Vasco', impuesto: 'iva', fianza: 'el Servicio Vasco de Vivienda (Etxebide)' },
+    rioja: { nombre: 'La Rioja', impuesto: 'iva', fianza: null },
+    ceuta: { nombre: 'Ceuta', impuesto: 'ninguno', fianza: 'la Empresa Municipal de la Vivienda de Ceuta' },
+    melilla: { nombre: 'Melilla', impuesto: 'ninguno', fianza: 'la Empresa Municipal de la Vivienda y Suelo de Melilla' },
+  };
+  const ccaaDe = (s, inmuebleId) => { const p = (s.inmuebles || []).find((x) => x.id === inmuebleId); const k = (p && p.ccaa) || (s.ajustes && s.ajustes.ccaa) || ''; return CCAA[k] ? k : ''; };
+  const COMERCIALES = ['Local comercial', 'Oficina', 'Nave'];
+  const impuestoPorDefecto = (s, inmuebleId) => { const p = (s.inmuebles || []).find((x) => x.id === inmuebleId), k = ccaaDe(s, inmuebleId); return p && COMERCIALES.includes(p.tipo) && k ? CCAA[k].impuesto : 'ninguno'; };
+  const organismoFianza = (s, inmuebleId) => { const k = ccaaDe(s, inmuebleId); return k ? CCAA[k].fianza : undefined; }; // con artículo; null = no hace falta; undefined = no se sabe la comunidad
+  const sinArticulo = (t) => String(t || '').replace(/^(el|la|las|los) |^l'/, '');
   const TIPOS = ['Plaza de garaje', 'Plaza de moto', 'Trastero', 'Vivienda', 'Habitación', 'Local comercial', 'Oficina', 'Nave', 'Terreno', 'Otro'];
   const CATEGORIAS = { impuesto: 'Impuestos y tasas', comunidad: 'Comunidad', suministro: 'Suministros', seguro: 'Seguros',
     mantenimiento: 'Reparaciones y mantenimiento', gestion: 'Gestión y servicios', financiacion: 'Hipoteca y financiación', otro: 'Otros' };
@@ -76,6 +103,7 @@
   function datosInmueble(d, base = {}) {
     const p = { ...base };
     for (const k of ['nombre', 'tipo', 'direccion', 'referencia', 'descripcion', 'notas']) if (d[k] !== undefined) p[k] = texto(d[k]);
+    if (d.ccaa !== undefined) p.ccaa = CCAA[d.ccaa] ? d.ccaa : '';
     for (const k of ['superficie']) if (d[k] !== undefined) p[k] = d[k] == null || d[k] === '' ? null : Number(d[k]);
     for (const k of ['valor', 'compraPrecio', 'compraGastos', 'valorCatastral', 'valorCatastralConstruccion']) if (d[k] !== undefined) {
       if (d[k] != null && !(esCent(d[k]) && d[k] >= 0)) throw err('IMPORTE', 'Importe no válido');
@@ -755,7 +783,7 @@
       claves: s.claves || {}, adjuntos: Array.isArray(s.adjuntos) ? s.adjuntos : [], numeracion: s.numeracion || {}, actas: Array.isArray(s.actas) ? s.actas : [] };
   }
 
-  return { VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, tipos, tipoEn, cambiarTipo, quitarTipo, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
+  return { CCAA, ccaaDe, COMERCIALES, impuestoPorDefecto, organismoFianza, sinArticulo, VIVIENDA, LEY_VIVIENDA, IMPUESTOS, RETENCION, desglose, fijarImporte, baseDe, tipos, tipoEn, cambiarTipo, quitarTipo, err, por, TIPOS, CATEGORIAS, RESPONSABLES, PERIODICIDADES, PLANTILLAS, nuevo, centimos, euros, esFecha, esMes, masMeses, mesMas, masDias, diasEntre, vence,
     puedeCrearInmueble, crearInmueble, editarInmueble, archivarInmueble, eliminarInmueble, crearInquilino, editarInquilino, archivarInquilino, eliminarInquilino,
     crearContrato, editarContrato, revisarRenta, finalizarContrato, renovarContrato, eliminarContrato, situacionContrato, rentaEn, rentaActual, contratoEn, finEfectivo,
     generarCargos, pagadoDe, estadoCargo, registrarPago, anularPago, anularCargo, restaurarCargo, ajustarCargo, cargos,

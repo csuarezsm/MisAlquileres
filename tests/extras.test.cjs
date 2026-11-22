@@ -52,7 +52,7 @@ test('actualización anual: IRAV por defecto en vivienda posterior a la ley, IPC
   MA.editarContrato(s, b.id, { actualizacion: 'ninguna' }, HOY); assert.equal(b.actualizacion, 'ninguna');
 });
 test('fianza: avisos de depósito, devolución y recuperación', () => {
-  const { s, p, q } = base(); const ct = MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2026-11-01', importe: 65000, fianza: 65000 }, HOY);
+  const { s, p, q } = base(); s.ajustes.ccaa = 'canarias'; const ct = MA.crearContrato(s, { inmuebleId: p.id, inquilinoId: q.id, inicio: '2026-11-01', importe: 65000, fianza: 65000 }, HOY);
   assert.equal(MA.avisosFianza(s, HOY).length, 0, 'sin fianza recibida no hay aviso');
   MA.registrarFianza(s, { contratoId: ct.id, tipo: 'recibida', importe: 65000 }, HOY);
   let a = MA.avisosFianza(s, HOY); assert.equal(a[0].tipo, 'fianza_deposito'); assert.equal(a[0].fecha, '2026-12-01');
